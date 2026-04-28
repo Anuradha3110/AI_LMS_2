@@ -190,6 +190,7 @@ function BarChart({ data, color = "#6366f1", height = 100 }: {
 
 function DonutChart({ segments, size = 90 }: {
   segments: Array<{ value: number; color: string; label: string }>;
+  size?: number;
 }) {
   const total = segments.reduce((s, g) => s + g.value, 0) || 1;
   const r = 30; const cx = size / 2; const cy = size / 2;

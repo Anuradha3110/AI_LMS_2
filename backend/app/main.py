@@ -36,26 +36,15 @@ app = FastAPI(
 )
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
-_raw_origins = settings.CORS_ORIGINS.strip()
-if _raw_origins == "*":
-    # Wildcard origin — credentials must be False (browser CORS spec requirement)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    # Specific origins — credentials can be True for cookie-based flows
-    _specific_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_specific_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# JWT Bearer tokens are used (not cookies), so allow_credentials=False with
+# allow_origins=["*"] is valid and works for all cross-origin frontends.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 @app.on_event("startup")

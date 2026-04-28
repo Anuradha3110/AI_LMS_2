@@ -146,7 +146,7 @@ function roleLabel(role: string) {
   return role;
 }
 
-type DashboardTab = "overview" | "learning" | "ai" | "knowledge" | "performance" | "modules" | "audit-log" | "adaptive-rules" | "notifications" | "courses-mongo" | "onboarding" | "integrations" | "question-bank" | "api-keys" | "website-sources" | "analytics-snapshots" | "embed-configs" | "ai-usage" | "departments" | "leave-types" | "learning-paths" | "xp-history" | "copilot" | "access-control";
+type DashboardTab = "overview" | "learning" | "ai" | "knowledge" | "performance" | "modules" | "audit-log" | "adaptive-rules" | "notifications" | "courses-mongo" | "onboarding" | "integrations" | "question-bank" | "api-keys" | "website-sources" | "analytics-snapshots" | "embed-configs" | "ai-usage" | "departments" | "leave-types" | "learning-paths" | "xp-history" | "copilot" | "access-control" | "_performance_legacy";
 
 /* ─── Copilot Types ─────────────────────────────────────────────── */
 type CopilotMsg = { role: "user" | "ai"; text: string; timestamp: Date };

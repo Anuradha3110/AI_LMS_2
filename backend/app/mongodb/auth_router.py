@@ -139,6 +139,44 @@ async def mongo_register(body: MongoRegisterRequest):
     )
 
 
+@router.get("/tenants", tags=["MongoDB Auth"])
+async def list_tenants():
+    """List all tenants (slugs + names) so you know which Company ID to use at login."""
+    cursor = tenants_col().find({}, {"_id": 1, "name": 1, "slug": 1, "plan": 1})
+    tenants = []
+    async for doc in cursor:
+        t_id = str(doc["_id"])
+        user_count = await users_col().count_documents({"tenant_id": t_id})
+        tenants.append({
+            "tenant_id": t_id,
+            "name": doc.get("name"),
+            "slug": doc.get("slug"),
+            "plan": doc.get("plan"),
+            "user_count": user_count,
+        })
+    return {"tenants": tenants}
+
+
+@router.get("/users", tags=["MongoDB Auth"])
+async def list_users():
+    """List all users (no passwords) so you can confirm which accounts exist."""
+    cursor = users_col().find({}, {"password_hash": 0})
+    users = []
+    async for doc in cursor:
+        tenant_id = doc.get("tenant_id")
+        tenant = await tenants_col().find_one({"_id": ObjectId(tenant_id)}) if tenant_id and ObjectId.is_valid(tenant_id) else None
+        users.append({
+            "id": str(doc["_id"]),
+            "email": doc.get("email"),
+            "full_name": doc.get("full_name"),
+            "role": doc.get("role"),
+            "is_active": doc.get("is_active", True),
+            "tenant_slug": tenant.get("slug") if tenant else tenant_id,
+            "tenant_name": tenant.get("name") if tenant else None,
+        })
+    return {"users": users, "total": len(users)}
+
+
 @router.post("/seed", tags=["MongoDB Auth"], status_code=201)
 async def mongo_seed():
     """

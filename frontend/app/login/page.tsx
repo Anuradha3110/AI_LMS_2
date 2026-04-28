@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { loginApi } from "@/lib/api";
+import { mongoLoginApi } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [tenantSlug, setTenantSlug] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +19,12 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await loginApi(email, password);
+      const res = await mongoLoginApi(email, password, tenantSlug || undefined);
       localStorage.setItem("access_token", res.access_token);
-      localStorage.setItem("user_role", res.user.role);
-      router.push(`/dashboard/${res.user.role}`);
+      localStorage.setItem("user_role", res.role);
+      localStorage.setItem("tenant_id", res.tenant_id);
+      localStorage.setItem("lms_user", JSON.stringify(res.user));
+      router.push(`/dashboard/${res.role}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -30,17 +33,21 @@ export default function LoginPage() {
   }
 
   const demoAccounts = [
-    { role: "Admin", email: "admin@gmail.com", color: "#8b5cf6" },
-    { role: "Manager", email: "manager@gmail.com", color: "#06b6d4" },
-    { role: "Employee", email: "employee@gmail.com", color: "#10b981" },
+    { role: "Admin",    email: "admin@demo.com",    password: "admin@123",    color: "#8b5cf6" },
+    { role: "Manager",  email: "manager@demo.com",  password: "manager@123",  color: "#06b6d4" },
+    { role: "Employee", email: "employee@demo.com", password: "employee@123", color: "#10b981" },
   ];
+
+  const fieldStyle = (name: string) => ({
+    ...styles.input,
+    ...(focusedField === name ? styles.inputFocused : {}),
+  });
 
   return (
     <main style={styles.root}>
-      {/* Left panel — branding */}
+      {/* ── Left branding panel ─────────────────────────────────────── */}
       <div style={styles.leftPanel}>
         <div style={styles.leftContent}>
-          {/* Logo mark */}
           <div style={styles.logoWrap}>
             <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
               <rect width="44" height="44" rx="12" fill="white" fillOpacity="0.15" />
@@ -59,20 +66,28 @@ export default function LoginPage() {
             tracks progress, and grows with every learner.
           </p>
 
-          {/* Feature chips */}
           <div style={styles.chipRow}>
-            {["Adaptive Paths", "Role-Based Access", "AI Insights", "Real-Time Analytics"].map((f) => (
+            {["Adaptive Paths", "Role-Based Access", "AI Insights", "Multi-Tenant"].map((f) => (
               <span key={f} style={styles.chip}>{f}</span>
             ))}
           </div>
+
+          {/* Tenant info card */}
+          <div style={styles.infoCard}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span style={styles.infoText}>
+              Leave <strong>Company ID</strong> blank to sign in with your email across all companies.
+            </span>
+          </div>
         </div>
 
-        {/* Decorative blobs */}
         <div style={{ ...styles.blob, top: "-80px", right: "-80px", background: "rgba(255,255,255,0.06)" }} />
         <div style={{ ...styles.blob, bottom: "-60px", left: "-60px", width: 300, height: 300, background: "rgba(255,255,255,0.04)" }} />
       </div>
 
-      {/* Right panel — form */}
+      {/* ── Right form panel ────────────────────────────────────────── */}
       <div style={styles.rightPanel}>
         <div style={styles.formCard}>
           <div style={styles.formHeader}>
@@ -81,6 +96,31 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={onSubmit} style={styles.form}>
+            {/* Company ID (tenant slug) */}
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>
+                Company ID
+                <span style={styles.optionalBadge}>optional</span>
+              </label>
+              <div style={{ position: "relative" }}>
+                <span style={styles.fieldIcon}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                  </svg>
+                </span>
+                <input
+                  value={tenantSlug}
+                  onChange={(e) => setTenantSlug(e.target.value)}
+                  onFocus={() => setFocusedField("slug")}
+                  onBlur={() => setFocusedField(null)}
+                  type="text"
+                  placeholder="your-company (e.g. demo-corp)"
+                  style={fieldStyle("slug")}
+                />
+              </div>
+            </div>
+
             {/* Email */}
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Email address</label>
@@ -99,10 +139,7 @@ export default function LoginPage() {
                   type="email"
                   required
                   placeholder="you@example.com"
-                  style={{
-                    ...styles.input,
-                    ...(focusedField === "email" ? styles.inputFocused : {}),
-                  }}
+                  style={fieldStyle("email")}
                 />
               </div>
             </div>
@@ -128,11 +165,7 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   required
                   placeholder="••••••••"
-                  style={{
-                    ...styles.input,
-                    paddingRight: 44,
-                    ...(focusedField === "password" ? styles.inputFocused : {}),
-                  }}
+                  style={{ ...fieldStyle("password"), paddingRight: 44 }}
                 />
                 <button
                   type="button"
@@ -160,9 +193,7 @@ export default function LoginPage() {
             {error && (
               <div style={styles.errorBox}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
                 <span>{error}</span>
               </div>
@@ -198,19 +229,14 @@ export default function LoginPage() {
               <div style={styles.dividerLine} />
             </div>
             <div style={styles.demoGrid}>
-              {demoAccounts.map(({ role, email: demoEmail, color }) => (
+              {demoAccounts.map(({ role, email: demoEmail, password: demoPass, color }) => (
                 <button
                   key={role}
                   type="button"
                   onClick={() => {
+                    setTenantSlug("demo-corp");
                     setEmail(demoEmail);
-                    setPassword(
-                      role === "Admin"
-                        ? "admin@123"
-                        : role === "Manager"
-                        ? "manager@123"
-                        : "employee@123"
-                    );
+                    setPassword(demoPass);
                   }}
                   style={{ ...styles.demoChip, borderColor: color + "55", color }}
                 >
@@ -219,29 +245,34 @@ export default function LoginPage() {
                 </button>
               ))}
             </div>
-            <p style={styles.demoHint}>Click a role to auto-fill credentials, then sign in.</p>
+            <p style={styles.demoHint}>
+              Click a role to auto-fill credentials, then sign in.{" "}
+              <span style={{ color: "#6366f1", fontWeight: 600 }}>Company: demo-corp</span>
+            </p>
+          </div>
+
+          <div style={{ marginTop: 24, textAlign: "center", fontSize: 13.5, color: "#64748b" }}>
+            New to AI-LMS?{" "}
+            <button
+              type="button"
+              onClick={() => router.push("/register")}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#6366f1", fontWeight: 700, fontSize: 13.5, padding: 0 }}
+            >
+              Register your organization →
+            </button>
           </div>
         </div>
       </div>
 
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
 
-/* ─── Styles ────────────────────────────────────────────────────── */
+/* ─── Styles ──────────────────────────────────────────────────────────── */
 const styles: Record<string, React.CSSProperties> = {
-  root: {
-    display: "flex",
-    minHeight: "100vh",
-    background: "#f8fafc",
-  },
+  root: { display: "flex", minHeight: "100vh", background: "#f8fafc" },
 
-  /* Left panel */
   leftPanel: {
     flex: "0 0 46%",
     background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)",
@@ -252,251 +283,79 @@ const styles: Record<string, React.CSSProperties> = {
     position: "relative",
     overflow: "hidden",
   },
-  leftContent: {
-    position: "relative",
-    zIndex: 1,
-    color: "white",
-    maxWidth: 420,
-  },
-  logoWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 48,
-  },
-  logoText: {
-    fontSize: 22,
-    fontWeight: 700,
-    color: "white",
-    letterSpacing: "0.04em",
-  },
-  heroHeading: {
-    fontSize: 40,
-    fontWeight: 800,
-    lineHeight: 1.18,
-    margin: "0 0 20px",
-    color: "white",
-  },
-  heroSubtext: {
-    fontSize: 16,
-    lineHeight: 1.7,
-    color: "rgba(255,255,255,0.78)",
-    margin: "0 0 36px",
-  },
-  chipRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  leftContent: { position: "relative", zIndex: 1, color: "white", maxWidth: 420 },
+  logoWrap: { display: "flex", alignItems: "center", gap: 12, marginBottom: 48 },
+  logoText: { fontSize: 22, fontWeight: 700, color: "white", letterSpacing: "0.04em" },
+  heroHeading: { fontSize: 40, fontWeight: 800, lineHeight: 1.18, margin: "0 0 20px", color: "white" },
+  heroSubtext: { fontSize: 16, lineHeight: 1.7, color: "rgba(255,255,255,0.78)", margin: "0 0 36px" },
+  chipRow: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 },
   chip: {
-    fontSize: 12,
-    fontWeight: 600,
-    padding: "6px 14px",
-    borderRadius: 20,
-    background: "rgba(255,255,255,0.15)",
-    color: "white",
-    letterSpacing: "0.02em",
-    backdropFilter: "blur(4px)",
-    border: "1px solid rgba(255,255,255,0.25)",
+    fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 20,
+    background: "rgba(255,255,255,0.15)", color: "white", letterSpacing: "0.02em",
+    backdropFilter: "blur(4px)", border: "1px solid rgba(255,255,255,0.25)",
   },
-  blob: {
-    position: "absolute",
-    width: 400,
-    height: 400,
-    borderRadius: "50%",
-    pointerEvents: "none",
+  infoCard: {
+    display: "flex", gap: 10, alignItems: "flex-start",
+    background: "rgba(255,255,255,0.10)", borderRadius: 10,
+    padding: "12px 16px", border: "1px solid rgba(255,255,255,0.18)",
   },
+  infoText: { fontSize: 13, color: "rgba(255,255,255,0.82)", lineHeight: 1.55 },
+  blob: { position: "absolute", width: 400, height: 400, borderRadius: "50%", pointerEvents: "none" },
 
-  /* Right panel */
-  rightPanel: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "48px 32px",
-  },
-  formCard: {
-    width: "100%",
-    maxWidth: 420,
-  },
-  formHeader: {
-    marginBottom: 32,
-  },
-  formTitle: {
-    fontSize: 28,
-    fontWeight: 800,
-    color: "#0f172a",
-    margin: "0 0 6px",
-  },
-  formSubtitle: {
-    fontSize: 15,
-    color: "#64748b",
-    margin: 0,
-  },
-
-  /* Form */
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 20,
-  },
-  fieldGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  label: {
-    fontSize: 13.5,
-    fontWeight: 600,
-    color: "#374151",
-    letterSpacing: "0.01em",
+  rightPanel: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 32px" },
+  formCard: { width: "100%", maxWidth: 440 },
+  formHeader: { marginBottom: 32 },
+  formTitle: { fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "0 0 6px" },
+  formSubtitle: { fontSize: 15, color: "#64748b", margin: 0 },
+  form: { display: "flex", flexDirection: "column", gap: 20 },
+  fieldGroup: { display: "flex", flexDirection: "column", gap: 6 },
+  label: { fontSize: 13.5, fontWeight: 600, color: "#374151", letterSpacing: "0.01em", display: "flex", alignItems: "center", gap: 8 },
+  optionalBadge: {
+    fontSize: 11, fontWeight: 500, color: "#94a3b8", padding: "1px 7px",
+    borderRadius: 20, background: "#f1f5f9", border: "1px solid #e2e8f0",
   },
   fieldIcon: {
-    position: "absolute",
-    left: 14,
-    top: "50%",
-    transform: "translateY(-50%)",
-    color: "#9ca3af",
-    display: "flex",
-    alignItems: "center",
-    pointerEvents: "none",
+    position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
+    color: "#9ca3af", display: "flex", alignItems: "center", pointerEvents: "none",
   },
   input: {
-    width: "100%",
-    padding: "11px 14px 11px 42px",
-    fontSize: 15,
-    borderRadius: 10,
-    border: "1.5px solid #e2e8f0",
-    background: "#fff",
-    color: "#0f172a",
-    outline: "none",
-    transition: "border-color 0.2s, box-shadow 0.2s",
-    boxSizing: "border-box",
+    width: "100%", padding: "11px 14px 11px 42px", fontSize: 15, borderRadius: 10,
+    border: "1.5px solid #e2e8f0", background: "#fff", color: "#0f172a", outline: "none",
+    transition: "border-color 0.2s, box-shadow 0.2s", boxSizing: "border-box",
   },
-  inputFocused: {
-    borderColor: "#6366f1",
-    boxShadow: "0 0 0 3px rgba(99,102,241,0.12)",
-  },
+  inputFocused: { borderColor: "#6366f1", boxShadow: "0 0 0 3px rgba(99,102,241,0.12)" },
   eyeBtn: {
-    position: "absolute",
-    right: 14,
-    top: "50%",
-    transform: "translateY(-50%)",
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    color: "#9ca3af",
-    display: "flex",
-    alignItems: "center",
-    padding: 0,
+    position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
+    background: "none", border: "none", cursor: "pointer", color: "#9ca3af",
+    display: "flex", alignItems: "center", padding: 0,
   },
-  forgotBtn: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    fontSize: 13,
-    color: "#6366f1",
-    fontWeight: 600,
-    padding: 0,
-  },
-
-  /* Error */
+  forgotBtn: { background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#6366f1", fontWeight: 600, padding: 0 },
   errorBox: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 14px",
-    borderRadius: 8,
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
-    color: "#dc2626",
-    fontSize: 13.5,
-    fontWeight: 500,
+    display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8,
+    background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", fontSize: 13.5, fontWeight: 500,
   },
-
-  /* Submit button */
   submitBtn: {
-    padding: "13px 20px",
-    fontSize: 15,
-    fontWeight: 700,
-    borderRadius: 10,
-    border: "none",
-    cursor: "pointer",
-    background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-    color: "white",
-    transition: "opacity 0.2s, transform 0.1s",
-    boxShadow: "0 4px 14px rgba(99,102,241,0.35)",
-    letterSpacing: "0.01em",
-    marginTop: 4,
+    padding: "13px 20px", fontSize: 15, fontWeight: 700, borderRadius: 10, border: "none",
+    cursor: "pointer", background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+    color: "white", transition: "opacity 0.2s, transform 0.1s",
+    boxShadow: "0 4px 14px rgba(99,102,241,0.35)", letterSpacing: "0.01em", marginTop: 4,
   },
-  submitBtnDisabled: {
-    opacity: 0.65,
-    cursor: "not-allowed",
-    transform: "none",
-  },
+  submitBtnDisabled: { opacity: 0.65, cursor: "not-allowed", transform: "none" },
   spinner: {
-    display: "inline-block",
-    width: 16,
-    height: 16,
-    border: "2px solid rgba(255,255,255,0.35)",
-    borderTopColor: "white",
-    borderRadius: "50%",
-    animation: "spin 0.7s linear infinite",
+    display: "inline-block", width: 16, height: 16,
+    border: "2px solid rgba(255,255,255,0.35)", borderTopColor: "white",
+    borderRadius: "50%", animation: "spin 0.7s linear infinite",
   },
-
-  /* Demo */
-  demoSection: {
-    marginTop: 28,
-  },
-  dividerRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    background: "#e2e8f0",
-  },
-  dividerText: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: "#94a3b8",
-    letterSpacing: "0.05em",
-    textTransform: "uppercase",
-    whiteSpace: "nowrap",
-  },
-  demoGrid: {
-    display: "flex",
-    gap: 8,
-    justifyContent: "center",
-  },
+  demoSection: { marginTop: 28 },
+  dividerRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 },
+  dividerLine: { flex: 1, height: 1, background: "#e2e8f0" },
+  dividerText: { fontSize: 12, fontWeight: 600, color: "#94a3b8", letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap" },
+  demoGrid: { display: "flex", gap: 8, justifyContent: "center" },
   demoChip: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: "8px 12px",
-    borderRadius: 8,
-    border: "1.5px solid",
-    background: "transparent",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 600,
-    transition: "background 0.15s",
+    flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+    padding: "8px 12px", borderRadius: 8, border: "1.5px solid", background: "transparent",
+    cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "background 0.15s",
   },
-  demoDot: {
-    width: 7,
-    height: 7,
-    borderRadius: "50%",
-    flexShrink: 0,
-  },
-  demoHint: {
-    marginTop: 10,
-    textAlign: "center",
-    fontSize: 12,
-    color: "#94a3b8",
-  },
+  demoDot: { width: 7, height: 7, borderRadius: "50%", flexShrink: 0 },
+  demoHint: { marginTop: 10, textAlign: "center", fontSize: 12, color: "#94a3b8" },
 };

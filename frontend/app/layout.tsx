@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI-LMS",
-  description: "Adaptive AI LMS Generator (Phase 4 roadmap)"
+  title: "AI-LMS Platform",
+  description: "Universal AI-powered Learning Management System. Multi-tenant, plug-in for any website. 53 database tables, 100+ endpoints.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,7 +1,13 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env relative to this file so it works regardless of cwd
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), env_file_encoding="utf-8")
+
     # Example: postgresql+psycopg2://user:pass@localhost:5432/db
     DATABASE_URL: str = "postgresql+psycopg2://ai_lms:ai_lms_password@localhost:5432/ai_lms_db"
 
@@ -17,6 +23,9 @@ class Settings(BaseSettings):
     AI_MODEL: str = "llama-3.1-8b-instant"
     AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://api.groq.com/openai/v1"
+
+    # MongoDB Atlas
+    MONGODB_URL: str = "mongodb://localhost:27017"
 
     # Phase 2 async processing
     REDIS_URL: str = "redis://localhost:6379/0"

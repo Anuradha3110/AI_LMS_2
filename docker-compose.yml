@@ -1,47 +1,109 @@
-name: ai-lms
+name: ai-lms-2
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg2://ai_lms_2:ai_lms_2_password@postgres:5432/ai_lms_db_2
+  JWT_SECRET: ai_lms_2_isolated_9kXpN7mQ4rT1sW8vZ3bY6cJ0eH2fL5d
+  JWT_ALGORITHM: HS256
+  JWT_TTL_SECONDS: 3600
+  CORS_ORIGINS: "http://localhost:3001"
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  AI_PROVIDER: groq
+  AI_MODEL: llama-3.1-8b-instant
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_BASE_URL: https://api.groq.com/openai/v1
+  MONGODB_URL: mongodb+srv://Anuradha_dev:Hexa%402201@cluster0.iyts5ys.mongodb.net/webx?retryWrites=true&w=majority
+
 services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ai_lms
-      POSTGRES_PASSWORD: ai_lms_password
-      POSTGRES_DB: ai_lms_db
+      POSTGRES_USER: ai_lms_2
+      POSTGRES_PASSWORD: ai_lms_2_password
+      POSTGRES_DB: ai_lms_db_2
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_2:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_lms_2 -d ai_lms_db_2"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
-  celery-worker:
-    image: python:3.13-slim
+      - redis_data_2:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend API ───────────────────────────────────────────────────────────
+  api:
+    image: python:3.11-slim
+    restart: unless-stopped
     working_dir: /app
     volumes:
       - ./backend:/app
     command: >
-      sh -c "pip install -r requirements.txt &&
-      celery -A app.core.celery_app.celery_app worker --loglevel=info"
+      sh -c "pip install -r requirements.txt -q &&
+             python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
-      DATABASE_URL: postgresql+psycopg2://ai_lms:ai_lms_password@postgres:5432/ai_lms_db
-      JWT_SECRET: dev_only_secret_change_me
-      JWT_ALGORITHM: HS256
-      JWT_TTL_SECONDS: 3600
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-      AI_PROVIDER: groq
-      AI_MODEL: llama-3.1-8b-instant
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_BASE_URL: https://api.groq.com/openai/v1
+      <<: *backend-env
+    ports:
+      - "8001:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Celery Worker ─────────────────────────────────────────────────────────
+  celery-worker:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "pip install -r requirements.txt -q &&
+             celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=2"
+    environment:
+      <<: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Celery Beat (Scheduler) ───────────────────────────────────────────────
+  celery-beat:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "pip install -r requirements.txt -q &&
+             celery -A app.core.celery_app.celery_app beat --loglevel=info"
+    environment:
+      <<: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
-  postgres_data:
-  redis_data:
-
+  postgres_data_2:
+  redis_data_2:

@@ -1,0 +1,195 @@
+"""MongoDB-backed auth router — uses webx database on Atlas."""
+import secrets
+from datetime import datetime
+from typing import Optional
+
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+
+from app.core.security import create_access_token, decode_token, hash_password, verify_password
+from app.mongodb.connection import tenants_col, users_col
+from app.mongodb.models import (
+    MongoLoginRequest,
+    MongoLoginResponse,
+    MongoRegisterRequest,
+    MongoRegisterResponse,
+    MongoUserOut,
+)
+
+router = APIRouter(prefix="/api/mongo", tags=["MongoDB Auth"])
+
+_oauth2 = OAuth2PasswordBearer(tokenUrl="/api/mongo/token")
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _user_out(doc: dict) -> MongoUserOut:
+    return MongoUserOut(
+        id=str(doc["_id"]),
+        email=doc["email"],
+        full_name=doc["full_name"],
+        role=doc["role"],
+        tenant_id=str(doc["tenant_id"]),
+        is_active=doc.get("is_active", True),
+        department=doc.get("department"),
+        job_title=doc.get("job_title"),
+        avatar_url=doc.get("avatar_url"),
+        last_login_at=doc.get("last_login_at"),
+    )
+
+
+async def _get_current_mongo_user(token: str = Depends(_oauth2)) -> dict:
+    try:
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        tenant_id = payload.get("tenant")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    col = users_col()
+    user = await col.find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id, "is_active": True})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return user
+
+
+# ── endpoints ────────────────────────────────────────────────────────────────
+
+@router.post("/login", response_model=MongoLoginResponse)
+async def mongo_login(body: MongoLoginRequest):
+    """Authenticate against MongoDB webx.users collection."""
+    col = users_col()
+    query: dict = {"email": body.email, "is_active": True}
+
+    if body.tenant_slug:
+        tenant = await tenants_col().find_one({"slug": body.tenant_slug})
+        if not tenant:
+            raise HTTPException(status_code=400, detail="Company not found")
+        query["tenant_id"] = str(tenant["_id"])
+
+    user = await col.find_one(query)
+    if not user or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    await col.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": datetime.utcnow()}})
+
+    token = create_access_token(
+        subject=str(user["_id"]),
+        extra_claims={"tenant": str(user["tenant_id"]), "role": user["role"]},
+    )
+    return MongoLoginResponse(
+        access_token=token,
+        role=user["role"],
+        user_id=str(user["_id"]),
+        tenant_id=str(user["tenant_id"]),
+        full_name=user["full_name"],
+        user=_user_out(user),
+    )
+
+
+@router.get("/me", response_model=MongoUserOut)
+async def mongo_me(current_user: dict = Depends(_get_current_mongo_user)):
+    """Return the currently authenticated user's profile."""
+    return _user_out(current_user)
+
+
+@router.post("/register", response_model=MongoRegisterResponse, status_code=201)
+async def mongo_register(body: MongoRegisterRequest):
+    """Create a new tenant + admin user in MongoDB webx database."""
+    t_col = tenants_col()
+    u_col = users_col()
+
+    if await t_col.find_one({"slug": body.slug}):
+        raise HTTPException(status_code=400, detail="Company slug already taken")
+
+    if await u_col.find_one({"email": body.admin_email}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    raw_api_key = secrets.token_urlsafe(32)
+    tenant_doc = {
+        "name": body.org_name,
+        "slug": body.slug,
+        "plan": body.plan,
+        "status": "active",
+        "api_key": raw_api_key,
+        "business_domain": body.business_domain,
+        "created_at": datetime.utcnow(),
+    }
+    t_result = await t_col.insert_one(tenant_doc)
+    tenant_id = str(t_result.inserted_id)
+
+    admin_doc = {
+        "tenant_id": tenant_id,
+        "email": body.admin_email,
+        "full_name": body.admin_name,
+        "password_hash": hash_password(body.admin_password),
+        "role": "admin",
+        "is_active": True,
+        "created_at": datetime.utcnow(),
+    }
+    await u_col.insert_one(admin_doc)
+
+    return MongoRegisterResponse(
+        tenant_id=tenant_id,
+        slug=body.slug,
+        admin_email=body.admin_email,
+        api_key=raw_api_key,
+        message="Company registered. Use admin credentials to sign in.",
+    )
+
+
+@router.post("/seed", tags=["MongoDB Auth"], status_code=201)
+async def mongo_seed():
+    """
+    Seed demo users in MongoDB webx database.
+    Safe to call multiple times — skips if already seeded.
+    """
+    t_col = tenants_col()
+    u_col = users_col()
+
+    existing_tenant = await t_col.find_one({"slug": "demo-corp"})
+    if existing_tenant:
+        return {"message": "Demo data already seeded", "tenant_id": str(existing_tenant["_id"])}
+
+    tenant_doc = {
+        "name": "Demo Corporation",
+        "slug": "demo-corp",
+        "plan": "pro",
+        "status": "active",
+        "api_key": secrets.token_urlsafe(32),
+        "created_at": datetime.utcnow(),
+    }
+    t_result = await t_col.insert_one(tenant_doc)
+    tenant_id = str(t_result.inserted_id)
+
+    demo_users = [
+        {"email": "admin@demo.com",    "full_name": "Demo Admin",    "role": "admin",    "password": "admin@123"},
+        {"email": "manager@demo.com",  "full_name": "Demo Manager",  "role": "manager",  "password": "manager@123"},
+        {"email": "employee@demo.com", "full_name": "Demo Employee", "role": "employee", "password": "employee@123"},
+    ]
+    for u in demo_users:
+        await u_col.insert_one({
+            "tenant_id": tenant_id,
+            "email": u["email"],
+            "full_name": u["full_name"],
+            "password_hash": hash_password(u["password"]),
+            "role": u["role"],
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+        })
+
+    # Ensure unique index on email + tenant_id
+    await u_col.create_index([("email", 1), ("tenant_id", 1)], unique=True)
+    await t_col.create_index("slug", unique=True)
+
+    return {
+        "message": "Demo users seeded successfully",
+        "tenant_id": tenant_id,
+        "tenant_slug": "demo-corp",
+        "accounts": [
+            {"role": "admin",    "email": "admin@demo.com",    "password": "admin@123"},
+            {"role": "manager",  "email": "manager@demo.com",  "password": "manager@123"},
+            {"role": "employee", "email": "employee@demo.com", "password": "employee@123"},
+        ],
+    }

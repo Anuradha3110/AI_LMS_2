@@ -23,8 +23,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     try:
         payload = decode_token(token)
         user_id_raw = payload.get("sub")
-        tenant_id_raw = payload.get("tenant_id")
-        if not user_id_raw or not tenant_id_raw:
+        tenant_id_raw = payload.get("tenant")   # key is "tenant" per auth router
+        if not user_id_raw:
             raise ValueError("Missing claims")
         user_id = UUID(str(user_id_raw))
         tenant_id = UUID(str(tenant_id_raw))

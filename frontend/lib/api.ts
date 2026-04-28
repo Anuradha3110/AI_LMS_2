@@ -335,7 +335,7 @@ export type EnrollmentOut = {
 export type CourseFeedbackOut = {
   id: string; user_id: string; course_id: string; rating: number; comment: string; created_at: string;
 };
-export type UserListOut = { id: string; email: string; full_name: string; role: string; is_active: boolean; };
+export type UserListOut = { id: string; email: string; full_name: string; role: string; is_active: boolean; department?: string; };
 export type BlueprintOut = {
   id: string;
   version: number;

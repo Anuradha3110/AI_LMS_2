@@ -36,17 +36,26 @@ app = FastAPI(
 )
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
-cors_origins = (
-    ["*"] if settings.CORS_ORIGINS.strip() == "*"
-    else [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_raw_origins = settings.CORS_ORIGINS.strip()
+if _raw_origins == "*":
+    # Wildcard origin — credentials must be False (browser CORS spec requirement)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # Specific origins — credentials can be True for cookie-based flows
+    _specific_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_specific_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 @app.on_event("startup")

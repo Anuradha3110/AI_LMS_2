@@ -25,9 +25,13 @@ def init_db() -> None:
 
 
 def safe_init() -> None:
-    """Create tables if missing and seed demo data once."""
-    Base.metadata.create_all(bind=engine)
-    _seed_demo_data()
+    """Create tables if missing and seed demo data once. Non-fatal if DB is unavailable."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        _seed_demo_data()
+    except Exception as exc:
+        print(f"[db_init] WARNING: PostgreSQL unavailable — {exc}")
+        print("[db_init] Skipping SQL init. MongoDB-powered features will still work.")
 
 
 def _seed_demo_data():

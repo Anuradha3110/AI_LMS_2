@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { mongoLoginApi } from "@/lib/api";
+import { forgotPasswordApi, mongoLoginApi } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // Forgot password modal state
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +35,20 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onForgotSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotLoading(true);
+    setForgotMsg(null);
+    try {
+      const res = await forgotPasswordApi(forgotEmail);
+      setForgotMsg({ type: "success", text: res.message });
+    } catch (err) {
+      setForgotMsg({ type: "error", text: err instanceof Error ? err.message : "Something went wrong" });
+    } finally {
+      setForgotLoading(false);
     }
   }
 
@@ -148,7 +168,7 @@ export default function LoginPage() {
             <div style={styles.fieldGroup}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <label style={styles.label}>Password</label>
-                <button type="button" style={styles.forgotBtn}>Forgot password?</button>
+                <button type="button" style={styles.forgotBtn} onClick={() => { setShowForgot(true); setForgotEmail(""); setForgotMsg(null); }}>Forgot password?</button>
               </div>
               <div style={{ position: "relative" }}>
                 <span style={styles.fieldIcon}>
@@ -265,6 +285,70 @@ export default function LoginPage() {
       </div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Forgot Password Modal ──────────────────────────────────── */}
+      {showForgot && (
+        <div style={styles.modalOverlay} onClick={() => setShowForgot(false)}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <div>
+                <h3 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Reset your password</h3>
+                <p style={{ margin: 0, fontSize: 13.5, color: "#64748b" }}>Enter your email and we'll send you a reset link.</p>
+              </div>
+              <button onClick={() => setShowForgot(false)} style={styles.modalClose} aria-label="Close">✕</button>
+            </div>
+
+            {forgotMsg?.type === "success" ? (
+              <div style={styles.successBox}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <span>{forgotMsg.text}</span>
+              </div>
+            ) : (
+              <form onSubmit={onForgotSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={styles.fieldGroup}>
+                  <label style={styles.label}>Registered email address</label>
+                  <div style={{ position: "relative" }}>
+                    <span style={styles.fieldIcon}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                      </svg>
+                    </span>
+                    <input
+                      type="email" required autoFocus
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      style={{ ...styles.input, ...(forgotEmail ? styles.inputFocused : {}) }}
+                    />
+                  </div>
+                </div>
+
+                {forgotMsg?.type === "error" && (
+                  <div style={styles.errorBox}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>{forgotMsg.text}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit" disabled={forgotLoading}
+                  style={{ ...styles.submitBtn, ...(forgotLoading ? styles.submitBtnDisabled : {}), marginTop: 0 }}
+                >
+                  {forgotLoading ? (
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+                      <span style={styles.spinner} /> Sending…
+                    </span>
+                  ) : "Send Reset Link"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -358,4 +442,24 @@ const styles: Record<string, React.CSSProperties> = {
   },
   demoDot: { width: 7, height: 7, borderRadius: "50%", flexShrink: 0 },
   demoHint: { marginTop: 10, textAlign: "center", fontSize: 12, color: "#94a3b8" },
+
+  modalOverlay: {
+    position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1000, backdropFilter: "blur(3px)",
+  },
+  modalCard: {
+    background: "#fff", borderRadius: 16, padding: "32px 36px",
+    width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
+    position: "relative",
+  },
+  modalClose: {
+    background: "none", border: "none", cursor: "pointer", fontSize: 18,
+    color: "#94a3b8", padding: "2px 6px", lineHeight: 1, borderRadius: 6,
+  },
+  successBox: {
+    display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px",
+    borderRadius: 10, background: "#f0fdf4", border: "1.5px solid #86efac",
+    color: "#15803d", fontSize: 14, fontWeight: 500, lineHeight: 1.55,
+  },
 };

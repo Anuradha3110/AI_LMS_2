@@ -9,7 +9,10 @@ from bson import ObjectId
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.mongodb.connection import attendence_col, leaderboard_col, team_progress_col, leave_requests_col, user_profiles_col
+from app.mongodb.connection import (
+    attendence_col, leaderboard_col, team_progress_col,
+    leave_requests_col, user_profiles_col, webx_db,
+)
 
 router = APIRouter(prefix="/api/mongo", tags=["Manager Dashboard"])
 
@@ -28,6 +31,188 @@ def _oid(id_str: str) -> ObjectId:
         return ObjectId(id_str)
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid id: {id_str}")
+
+
+def _users_col():
+    return webx_db()["users"]
+
+
+# ── Sync state ────────────────────────────────────────────────────────────────
+
+_last_sync: Optional[datetime] = None
+_SYNC_INTERVAL = 300  # seconds between auto-syncs
+
+
+async def _sync_from_users() -> list:
+    """Upsert dashboard collections from employees only (role == 'employee').
+    All non-employee records are removed from every managed collection."""
+    users = await _users_col().find({"is_active": True, "role": "employee"}).to_list(length=500)
+
+    now = datetime.utcnow()
+    today = now.strftime("%Y-%m-%d")
+    tp_col  = team_progress_col()
+    lb_col  = leaderboard_col()
+    att_col = attendence_col()
+    up_col  = user_profiles_col()
+    lr_col  = leave_requests_col()
+
+    employee_ids = [str(u["_id"]) for u in users]
+
+    for user in users:
+        uid    = str(user["_id"])
+        name   = user.get("full_name", "Unknown")
+        dept   = user.get("department") or user.get("role", "employee").title()
+        email  = user.get("email", "")
+        avatar = "".join(w[0].upper() for w in name.split()[:2]) if name.strip() else "?"
+
+        # Team_progress — always refresh identity fields; preserve performance scores
+        await tp_col.update_one(
+            {"user_id": uid},
+            {
+                "$set": {"name": name, "role": dept, "avatar": avatar, "email": email, "updated_at": now},
+                "$setOnInsert": {
+                    "user_id": uid,
+                    "kpi": 0, "completion": 0,
+                    "pitchScore": 0, "objectionScore": 0, "escalationScore": 0,
+                    "status": "New", "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+        # Leaderboard — always refresh identity fields; preserve XP/level/badges
+        await lb_col.update_one(
+            {"user_id": uid},
+            {
+                "$set": {"full_name": name, "role": dept, "email": email, "updated_at": now},
+                "$setOnInsert": {
+                    "user_id": uid,
+                    "xp_points": 0, "level": 1,
+                    "badges_count": 0, "streak_days": 0,
+                    "completion": 0, "kpi": 0, "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+        # Attendence — one record per user per day, created only if it doesn't exist
+        await att_col.update_one(
+            {"user_id": uid, "date": today},
+            {
+                "$setOnInsert": {
+                    "user_id": uid,
+                    "Name": name,
+                    "Role": dept,
+                    "Status": "Present",
+                    "Check In": "",
+                    "Check Out": "",
+                    "Hours Worked": "0h",
+                    "Note": "",
+                    "date": today,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+        # User_profiles — seed basic info on first access
+        await up_col.update_one(
+            {"user_id": uid},
+            {
+                "$set": {"updated_at": now},
+                "$setOnInsert": {
+                    "user_id": uid,
+                    "full_name": name,
+                    "email": email,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    # ── Purge all non-employee records ────────────────────────────────────────
+    # Matches: records whose user_id is not an employee, AND old hardcoded records
+    # without user_id (e.g. legacy seed data).  $nin on [] matches everything,
+    # so if there are no employees every collection is cleared.
+    _not_emp = {"$or": [
+        {"user_id": {"$exists": False}},
+        {"user_id": {"$nin": employee_ids}},
+    ]}
+    await tp_col.delete_many(_not_emp)
+    await lb_col.delete_many(_not_emp)
+    await lr_col.delete_many(_not_emp)
+    # Attendence: keep manually-added rows without user_id (could be valid employee records)
+    await att_col.delete_many({"user_id": {"$exists": True, "$nin": employee_ids}})
+    # User_profiles always have user_id (set by the upsert endpoint)
+    await up_col.delete_many({"user_id": {"$nin": employee_ids}})
+
+    return users
+
+
+async def _seed_leave_requests(users: list) -> None:
+    """Seed Leave_requests once using real user names (no-op if already has data)."""
+    col = leave_requests_col()
+    if await col.count_documents({}) > 0:
+        return
+
+    if not users:
+        return
+
+    now = datetime.utcnow()
+    leave_types  = ["Sick Leave",   "Casual Leave",  "Earned Leave",
+                    "Sick Leave",   "Casual Leave",  "Earned Leave"]
+    reasons      = [
+        "Fever and flu recovery.",
+        "Family function.",
+        "Annual vacation trip.",
+        "Migraine — doctor visit.",
+        "Personal errand.",
+        "Pre-planned trip.",
+    ]
+    statuses = ["pending", "approved", "pending", "rejected", "pending", "approved"]
+    comments = [None, "Approved. Enjoy!", None, "Critical deadline. Please reschedule.", None, "Approved — targets met."]
+
+    docs = []
+    for i, user in enumerate(users[:6]):
+        name   = user.get("full_name", "User")
+        uid    = str(user["_id"])
+        avatar = "".join(w[0].upper() for w in name.split()[:2]) if name.strip() else "?"
+        docs.append({
+            "user_id":     uid,
+            "name":        name,
+            "avatar":      avatar,
+            "type":        leave_types[i],
+            "startDate":   "May 15, 2025",
+            "endDate":     "May 17, 2025",
+            "days":        3,
+            "reason":      reasons[i],
+            "status":      statuses[i],
+            "appliedDate": "May 10, 2025",
+            "comment":     comments[i],
+            "created_at":  now,
+            "updated_at":  now,
+        })
+
+    if docs:
+        await col.insert_many(docs)
+        await col.create_index([("created_at", -1)])
+
+
+async def _ensure_synced() -> None:
+    """Sync from users collection at most once every _SYNC_INTERVAL seconds.
+    Uses asyncio's cooperative threading — setting _last_sync before the first
+    await prevents concurrent re-entry without needing an asyncio.Lock."""
+    global _last_sync
+    now = datetime.utcnow()
+    if _last_sync and (now - _last_sync).total_seconds() < _SYNC_INTERVAL:
+        return
+    _last_sync = now  # optimistic write — no other coroutine runs until we await
+    try:
+        users = await _sync_from_users()
+        await _seed_leave_requests(users)
+    except Exception:
+        _last_sync = None  # allow retry on failure
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -84,7 +269,8 @@ class LeaderboardPatch(BaseModel):
 
 @router.get("/team-progress", response_model=List[Dict[str, Any]])
 async def list_team_progress():
-    """List all Team_progress documents."""
+    """List all Team_progress documents (synced from users collection)."""
+    await _ensure_synced()
     col = team_progress_col()
     docs = await col.find({}).to_list(length=200)
     return [_serialize(d) for d in docs]
@@ -155,7 +341,8 @@ async def delete_team_progress(id: str):
 
 @router.get("/leaderboard-data", response_model=List[Dict[str, Any]])
 async def list_leaderboard():
-    """List all Leaderboard entries sorted by xp_points descending."""
+    """List all Leaderboard entries sorted by xp_points descending (synced from users collection)."""
+    await _ensure_synced()
     col = leaderboard_col()
     docs = await col.find({}).sort("xp_points", -1).to_list(length=200)
     return [_serialize(d) for d in docs]
@@ -224,58 +411,20 @@ async def delete_leaderboard_entry(id: str):
 @router.post("/seed-dashboard", status_code=201)
 async def seed_dashboard():
     """
-    Seed Team_progress and Leaderboard collections with demo data.
-    Safe to call multiple times — skips if already seeded.
+    Force-sync all manager dashboard collections from users where role=='employee'.
+    Removes any admin/manager/stale records. Safe to call multiple times.
     """
-    tp_col = team_progress_col()
-    lb_col = leaderboard_col()
-
-    # ── Team Progress ──────────────────────────────────────────────────────────
-    if await tp_col.count_documents({}) == 0:
-        team_data = [
-            {"name": "Raju Sharma",  "role": "Sales",      "avatar": "RS", "kpi": 68, "completion": 72, "pitchScore": 74, "objectionScore": 62, "escalationScore": 81, "status": "At Risk"},
-            {"name": "Priya Mehta",  "role": "Sales",      "avatar": "PM", "kpi": 91, "completion": 95, "pitchScore": 92, "objectionScore": 88, "escalationScore": 90, "status": "Top Performer"},
-            {"name": "Arjun Verma",  "role": "Support",    "avatar": "AV", "kpi": 55, "completion": 48, "pitchScore": 52, "objectionScore": 45, "escalationScore": 60, "status": "Needs Training"},
-            {"name": "Neha Singh",   "role": "Operations", "avatar": "NS", "kpi": 84, "completion": 88, "pitchScore": 79, "objectionScore": 83, "escalationScore": 87, "status": "On Track"},
-            {"name": "Karan Patel",  "role": "Sales",      "avatar": "KP", "kpi": 77, "completion": 80, "pitchScore": 80, "objectionScore": 74, "escalationScore": 76, "status": "On Track"},
-            {"name": "Simran Kaur",  "role": "Support",    "avatar": "SK", "kpi": 62, "completion": 65, "pitchScore": 60, "objectionScore": 58, "escalationScore": 67, "status": "At Risk"},
-        ]
-        now = datetime.utcnow()
-        for m in team_data:
-            m["created_at"] = now
-            m["updated_at"] = now
-        await tp_col.insert_many(team_data)
-        await tp_col.create_index("name")
-        tp_seeded = True
-    else:
-        tp_seeded = False
-
-    # ── Leaderboard ────────────────────────────────────────────────────────────
-    if await lb_col.count_documents({}) == 0:
-        lb_data = [
-            {"full_name": "Priya Mehta",  "role": "Sales",      "xp_points": 2840, "level": 5, "badges_count": 8, "streak_days": 14, "completion": 95, "kpi": 91},
-            {"full_name": "Neha Singh",   "role": "Operations", "xp_points": 2310, "level": 4, "badges_count": 6, "streak_days": 9,  "completion": 88, "kpi": 84},
-            {"full_name": "Karan Patel",  "role": "Sales",      "xp_points": 1950, "level": 3, "badges_count": 5, "streak_days": 7,  "completion": 80, "kpi": 77},
-            {"full_name": "Raju Sharma",  "role": "Sales",      "xp_points": 1620, "level": 3, "badges_count": 4, "streak_days": 3,  "completion": 72, "kpi": 68},
-            {"full_name": "Simran Kaur",  "role": "Support",    "xp_points": 1180, "level": 2, "badges_count": 3, "streak_days": 2,  "completion": 65, "kpi": 62},
-            {"full_name": "Arjun Verma",  "role": "Support",    "xp_points": 890,  "level": 2, "badges_count": 2, "streak_days": 0,  "completion": 48, "kpi": 55},
-        ]
-        now = datetime.utcnow()
-        for e in lb_data:
-            e["created_at"] = now
-            e["updated_at"] = now
-        await lb_col.insert_many(lb_data)
-        await lb_col.create_index([("xp_points", -1)])
-        lb_seeded = True
-    else:
-        lb_seeded = False
-
+    global _last_sync
+    _last_sync = None  # force fresh sync regardless of interval
+    users = await _sync_from_users()
+    await _seed_leave_requests(users)
     return {
-        "message": "Dashboard seed complete",
-        "team_progress_seeded": tp_seeded,
-        "leaderboard_seeded": lb_seeded,
-        "team_progress_count": await tp_col.count_documents({}),
-        "leaderboard_count": await lb_col.count_documents({}),
+        "message": "Dashboard synced — employees only",
+        "users_synced": len(users),
+        "team_progress_count": await team_progress_col().count_documents({}),
+        "leaderboard_count": await leaderboard_col().count_documents({}),
+        "attendance_count": await attendence_col().count_documents({}),
+        "leave_requests_count": await leave_requests_col().count_documents({}),
     }
 
 
@@ -334,7 +483,8 @@ def _is_employee_record(doc: dict) -> bool:
 
 @router.get("/attendance", response_model=List[Dict[str, Any]])
 async def list_attendance():
-    """List all real employee attendance records (filters out summary rows)."""
+    """List all real employee attendance records (synced from users collection)."""
+    await _ensure_synced()
     col = attendence_col()
     docs = await col.find({}).sort("Name", 1).to_list(length=500)
     return [_serialize(d) for d in docs if _is_employee_record(d)]
@@ -406,29 +556,11 @@ class LeaveRequestStatusPatch(BaseModel):
     comment: Optional[str] = None
 
 
-_LEAVE_SEED = [
-    {"name": "Arjun Verma",  "avatar": "AV", "type": "Sick Leave",   "startDate": "Apr 15, 2025", "endDate": "Apr 17, 2025", "days": 3, "reason": "Fever and flu recovery.",                       "status": "pending",  "appliedDate": "Apr 13, 2025", "comment": None},
-    {"name": "Karan Patel",  "avatar": "KP", "type": "Casual Leave", "startDate": "Apr 18, 2025", "endDate": "Apr 18, 2025", "days": 1, "reason": "Family function.",                               "status": "approved", "appliedDate": "Apr 12, 2025", "comment": "Approved. Enjoy!"},
-    {"name": "Simran Kaur",  "avatar": "SK", "type": "Earned Leave",  "startDate": "Apr 22, 2025", "endDate": "Apr 26, 2025", "days": 5, "reason": "Annual vacation trip.",                          "status": "pending",  "appliedDate": "Apr 11, 2025", "comment": None},
-    {"name": "Raju Sharma",  "avatar": "RS", "type": "Sick Leave",   "startDate": "Apr 05, 2025", "endDate": "Apr 06, 2025", "days": 2, "reason": "Migraine — doctor visit.",                       "status": "rejected", "appliedDate": "Apr 04, 2025", "comment": "Critical deadline week. Please reschedule."},
-    {"name": "Neha Singh",   "avatar": "NS", "type": "Casual Leave", "startDate": "Apr 28, 2025", "endDate": "Apr 28, 2025", "days": 1, "reason": "Personal errand.",                               "status": "pending",  "appliedDate": "Apr 13, 2025", "comment": None},
-    {"name": "Priya Mehta",  "avatar": "PM", "type": "Earned Leave",  "startDate": "May 05, 2025", "endDate": "May 09, 2025", "days": 5, "reason": "Pre-planned international trip.",                "status": "approved", "appliedDate": "Apr 20, 2025", "comment": "Approved — all targets met ahead of schedule."},
-    {"name": "Raju Sharma",  "avatar": "RS", "type": "Casual Leave", "startDate": "May 02, 2025", "endDate": "May 02, 2025", "days": 1, "reason": "Attending sibling's wedding.",                   "status": "pending",  "appliedDate": "Apr 22, 2025", "comment": None},
-    {"name": "Arjun Verma",  "avatar": "AV", "type": "Casual Leave", "startDate": "May 12, 2025", "endDate": "May 12, 2025", "days": 1, "reason": "Bank-related personal work.",                    "status": "pending",  "appliedDate": "Apr 23, 2025", "comment": None},
-    {"name": "Simran Kaur",  "avatar": "SK", "type": "Sick Leave",   "startDate": "Apr 29, 2025", "endDate": "Apr 30, 2025", "days": 2, "reason": "Severe cold and sore throat.",                   "status": "approved", "appliedDate": "Apr 28, 2025", "comment": "Get well soon!"},
-    {"name": "Neha Singh",   "avatar": "NS", "type": "Earned Leave",  "startDate": "May 19, 2025", "endDate": "May 23, 2025", "days": 5, "reason": "Annual family vacation.",                        "status": "pending",  "appliedDate": "Apr 25, 2025", "comment": None},
-]
-
-
 @router.get("/leave-requests", response_model=List[Dict[str, Any]])
 async def list_leave_requests():
-    """List all Leave_requests documents. Auto-seeds with demo data if collection is empty."""
+    """List all Leave_requests documents (seeded from real users if empty)."""
+    await _ensure_synced()
     col = leave_requests_col()
-    if await col.count_documents({}) == 0:
-        now = datetime.utcnow()
-        docs_to_insert = [{**r, "created_at": now, "updated_at": now} for r in _LEAVE_SEED]
-        await col.insert_many(docs_to_insert)
-        await col.create_index([("created_at", -1)])
     docs = await col.find({}).sort("created_at", -1).to_list(length=500)
     return [_serialize(d) for d in docs]
 

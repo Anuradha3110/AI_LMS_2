@@ -91,15 +91,15 @@ import {
   listAnalyticsSnapshotsApi, type AnalyticsSnapshotOut,
   listLeaveTypesApi, createLeaveTypeApi, type LeaveTypeOut,
   registerTenantApi,
-  mongoListCoursesApi, mongoCreateCourseApi, mongoUpdateCourseApi, mongoDeleteCourseApi,
-  mongoPatchCourseApi, mongoSeedCoursesApi, mongoGetCourseStatsApi,
+  mongoListCoursesApi, mongoListCoursesWithLessonsApi, mongoCreateCourseApi, mongoUpdateCourseApi, mongoDeleteCourseApi,
+  mongoPatchCourseApi, mongoSeedCoursesApi, mongoGetCourseStatsApi, mongoGetLessonApi,
   mongoGetProfileApi, mongoUpsertProfileApi,
   getLearningFlowAnalyticsApi,
   getLearningFlowDebugApi,
   type LearningFlowAnalytics,
   type LfEmployeePerformance,
   type LfDebugResult,
-  type MongoCourseDoc, type MongoCourseStatsDoc,
+  type MongoCourseDoc, type MongoCourseStatsDoc, type CourseLessonDoc,
   type UserProfileDoc,
   getAssessmentAnalyticsApi,
   syncAssessmentAnalyticsApi,
@@ -137,6 +137,31 @@ import {
   type AcSecurityAlert,
   type AcAnalytics,
   type AcPermissions,
+  getMongoNotificationsApi,
+  markMongoNotifReadApi,
+  markAllMongoNotifReadApi,
+  archiveMongoNotifApi,
+  getMongoNotifSummaryApi,
+  type MongoNotification,
+  type MongoNotifSummary,
+  type MongoNotifCounts,
+  // ─── Employee Workspace ─────────────────────────────────────────
+  getEmpProgressApi, syncEmpProgressApi, trackLessonProgressApi,
+  getEmpPerformanceApi,
+  getEmpLeaderboardApi, getEmpRankApi,
+  getEmpScheduleApi, createEmpTaskApi, updateEmpTaskApi, deleteEmpTaskApi,
+  getEmpRoleAccessApi,
+  getEmpIdeasApi, submitEmpIdeaApi, voteEmpIdeaApi,
+  // ─── Leave Management Workspace ────────────────────────────────
+  getLeaveBalanceApi, getMyLeaveRequestsApi, applyLeaveApi,
+  getLeavePoliciesApi, getLeaveTrendsApi, checkLeaveConflictsApi, getLeaveCalendarApi,
+  type LeaveBalance, type EmployeeLeaveRequest, type LeavePolicy, type LeaveTrends,
+  type EmpProgressResult, type EmpProgressCourse,
+  type EmpPerformanceResult, type EmpPerformanceAssessment,
+  type EmpLeaderboardResult, type EmpLeaderboardEntry,
+  type EmpScheduleResult, type EmpTask,
+  type EmpRoleAccessResult, type EmpRoleAccess,
+  type EmpIdeasResult, type EmpIdea,
 } from "@/lib/api";
 
 function roleLabel(role: string) {
@@ -146,7 +171,7 @@ function roleLabel(role: string) {
   return role;
 }
 
-type DashboardTab = "overview" | "learning" | "ai" | "knowledge" | "performance" | "modules" | "audit-log" | "adaptive-rules" | "notifications" | "courses-mongo" | "onboarding" | "integrations" | "question-bank" | "api-keys" | "website-sources" | "analytics-snapshots" | "embed-configs" | "ai-usage" | "departments" | "leave-types" | "learning-paths" | "xp-history" | "copilot" | "access-control" | "_performance_legacy";
+type DashboardTab = "overview" | "learning" | "ai" | "knowledge" | "performance" | "modules" | "audit-log" | "adaptive-rules" | "notifications" | "courses-mongo" | "onboarding" | "integrations" | "question-bank" | "api-keys" | "website-sources" | "analytics-snapshots" | "embed-configs" | "ai-usage" | "departments" | "leave-types" | "learning-paths" | "xp-history" | "copilot" | "access-control" | "_performance_legacy" | "emp-progress" | "emp-performance" | "emp-leaderboard" | "emp-schedule" | "emp-role-access" | "emp-ideas" | "emp-leaves";
 
 /* ─── Copilot Types ─────────────────────────────────────────────── */
 type CopilotMsg = { role: "user" | "ai"; text: string; timestamp: Date };
@@ -381,7 +406,14 @@ const NAV_ITEMS: { id: DashboardTab; label: string; iconD: string; adminOnly?: b
   { id: "performance",   label: "Performance",    iconD: "M18 20V10M12 20V4M6 20v-6", adminOnly: true },
   { id: "audit-log",     label: "Audit Log",      iconD: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8", adminOnly: true },
   { id: "adaptive-rules",label: "Adaptive Rules", iconD: "M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4L12 14.01l-3-3", adminOnly: true },
-  { id: "notifications", label: "Notifications",  iconD: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0", hideForAdmin: true },
+  { id: "notifications",   label: "Notifications",  iconD: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0", hideForAdmin: true },
+  { id: "emp-progress",    label: "Progress",        iconD: "M18 20V10M12 20V4M6 20v-6", hideForAdmin: true },
+  { id: "emp-performance", label: "Performance",     iconD: "M22 12h-4l-3 9L9 3l-3 9H2", hideForAdmin: true },
+  { id: "emp-leaderboard", label: "Standing",        iconD: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z", hideForAdmin: true },
+  { id: "emp-schedule",    label: "Tasks & Schedule",iconD: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", hideForAdmin: true },
+  { id: "emp-role-access", label: "Role Access",     iconD: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z", hideForAdmin: true },
+  { id: "emp-ideas",       label: "Idea Hub",        iconD: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z", hideForAdmin: true },
+  { id: "emp-leaves",      label: "Leave",           iconD: "M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M9 14l2 2 4-4", hideForAdmin: true },
   { id: "courses-mongo", label: "Course Manager", iconD: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5", adminOnly: true },
   { id: "copilot",       label: "AI Copilot",    iconD: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" },
   { id: "access-control", label: "Access Control", iconD: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z", adminOnly: true },
@@ -564,7 +596,7 @@ export default function DashboardPage() {
   const role = params.role;
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [me, setMe] = useState<null | { id: string; role: string; full_name: string; email: string }>(null);
+  const [me, setMe] = useState<null | { id: string; role: string; full_name: string; email: string; department?: string | null }>(null);
   const [courses, setCourses] = useState<CourseOut[]>([]);
   const [modules, setModules] = useState<ModuleOut[]>([]);
   const [lessons, setLessons] = useState<LessonOut[]>([]);
@@ -657,6 +689,12 @@ export default function DashboardPage() {
   const [mongoLastSync, setMongoLastSync] = useState<Date | null>(null);
   const [mongoCourseFilter, setMongoCourseFilter] = useState<{ category: string; status: string; search: string }>({ category: "", status: "", search: "" });
   const [learningCatFilter, setLearningCatFilter] = useState("");
+  // ── Employee learning drill-down state ──────────────────────────────
+  const [empLearnView, setEmpLearnView] = useState<"courses" | "modules" | "lessons" | "detail">("courses");
+  const [empLearnCourse, setEmpLearnCourse] = useState<MongoCourseDoc | null>(null);
+  const [empLearnModuleIdx, setEmpLearnModuleIdx] = useState<number>(0);
+  const [empLearnLesson, setEmpLearnLesson] = useState<CourseLessonDoc | null>(null);
+  const [empLearnLessonLoading, setEmpLearnLessonLoading] = useState(false);
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<MongoCourseDoc | null>(null);
   const [courseForm, setCourseForm] = useState<{
@@ -706,6 +744,17 @@ export default function DashboardPage() {
   const [asAIQuizResult, setAsAIQuizResult] = useState<AsAIQuestion[] | null>(null);
   const [asAIGenerating, setAsAIGenerating] = useState(false);
   const [asAIQuizCourseId, setAsAIQuizCourseId] = useState("");
+
+  // ── Notifications Workspace State ────────────────────────────────
+  const [mnData, setMnData] = useState<MongoNotification[]>([]);
+  const [mnSummary, setMnSummary] = useState<MongoNotifSummary | null>(null);
+  const [mnLoading, setMnLoading] = useState(false);
+  const [mnSyncing, setMnSyncing] = useState(false);
+  const [mnLastSync, setMnLastSync] = useState<Date | null>(null);
+  const [mnFilter, setMnFilter] = useState("all");
+  const [mnSort, setMnSort] = useState("newest");
+  const [mnSearch, setMnSearch] = useState("");
+  const [mnCounts, setMnCounts] = useState<MongoNotifCounts>({ total: 0, unread: 0, urgent: 0, category_counts: {} });
 
   // ── Module Builder State ──────────────────────────────────────────
   type MgrStep = "course" | "modules" | "lessons" | "quiz" | "assignments" | "users" | "settings" | "preview" | "publish" | "feedback";
@@ -838,6 +887,72 @@ export default function DashboardPage() {
   const [accEditName, setAccEditName] = useState("");
   const [accEditDesc, setAccEditDesc] = useState("");
 
+  // ── Employee Progress Workspace State ────────────────────────────
+  const [empProgress, setEmpProgress] = useState<EmpProgressResult | null>(null);
+  const [empProgressLoading, setEmpProgressLoading] = useState(false);
+  const [empProgressSyncing, setEmpProgressSyncing] = useState(false);
+  const [empProgressLastSync, setEmpProgressLastSync] = useState<Date | null>(null);
+
+  // ── Employee Performance Workspace State ─────────────────────────
+  const [empPerf, setEmpPerf] = useState<EmpPerformanceResult | null>(null);
+  const [empPerfLoading, setEmpPerfLoading] = useState(false);
+
+  // ── Employee Leaderboard Workspace State ─────────────────────────
+  const [empLb, setEmpLb] = useState<EmpLeaderboardResult | null>(null);
+  const [empLbLoading, setEmpLbLoading] = useState(false);
+  const [empLbDept, setEmpLbDept] = useState("all");
+  const [empLbTimeframe, setEmpLbTimeframe] = useState("monthly");
+
+  // ── Employee Schedule Workspace State ────────────────────────────
+  const [empSchedule, setEmpSchedule] = useState<EmpScheduleResult | null>(null);
+  const [empScheduleLoading, setEmpScheduleLoading] = useState(false);
+  const [empScheduleFilter, setEmpScheduleFilter] = useState("all");
+  const [empScheduleType, setEmpScheduleType] = useState("all");
+  const [empNewTaskTitle, setEmpNewTaskTitle] = useState("");
+  const [empNewTaskType, setEmpNewTaskType] = useState("learning");
+  const [empNewTaskPriority, setEmpNewTaskPriority] = useState("medium");
+  const [empNewTaskDue, setEmpNewTaskDue] = useState("");
+  const [empNewTaskCourse, setEmpNewTaskCourse] = useState("");
+  const [empTaskMsg, setEmpTaskMsg] = useState<string | null>(null);
+  const [empTaskCreating, setEmpTaskCreating] = useState(false);
+
+  // ── Employee Role Access Workspace State ─────────────────────────
+  const [empRoleAccess, setEmpRoleAccess] = useState<EmpRoleAccessResult | null>(null);
+  const [empRoleAccessLoading, setEmpRoleAccessLoading] = useState(false);
+  const [empSelectedRole, setEmpSelectedRole] = useState("Sales Executive");
+
+  // ── Employee Idea Hub Workspace State ────────────────────────────
+  const [empIdeas, setEmpIdeas] = useState<EmpIdeasResult | null>(null);
+  const [empIdeasLoading, setEmpIdeasLoading] = useState(false);
+  const [empIdeaCategory, setEmpIdeaCategory] = useState("all");
+  const [empIdeaSort, setEmpIdeaSort] = useState("newest");
+  const [empNewIdeaTitle, setEmpNewIdeaTitle] = useState("");
+  const [empNewIdeaDesc, setEmpNewIdeaDesc] = useState("");
+  const [empNewIdeaCat, setEmpNewIdeaCat] = useState("other");
+  const [empIdeaMsg, setEmpIdeaMsg] = useState<string | null>(null);
+  const [empIdeaSubmitting, setEmpIdeaSubmitting] = useState(false);
+  const [empShowIdeaForm, setEmpShowIdeaForm] = useState(false);
+
+  // ── Leave Management Workspace State ─────────────────────────────
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
+  const [leaveRequests, setLeaveRequests] = useState<EmployeeLeaveRequest[]>([]);
+  const [leavePolicies, setLeavePolicies] = useState<LeavePolicy[]>([]);
+  const [leaveTrends, setLeaveTrends] = useState<LeaveTrends | null>(null);
+  const [leaveCalendar, setLeaveCalendar] = useState<EmployeeLeaveRequest[]>([]);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveApplying, setLeaveApplying] = useState(false);
+  const [leaveMsg, setLeaveMsg] = useState<string | null>(null);
+  const [leaveMsgType, setLeaveMsgType] = useState<"success" | "error">("success");
+  const [leaveActivePanel, setLeaveActivePanel] = useState<"overview" | "apply" | "balance" | "history" | "calendar" | "policy">("overview");
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState("all");
+  const [leaveFormType, setLeaveFormType] = useState("Casual Leave");
+  const [leaveFormStart, setLeaveFormStart] = useState("");
+  const [leaveFormEnd, setLeaveFormEnd] = useState("");
+  const [leaveFormReason, setLeaveFormReason] = useState("");
+  const [leaveFormDays, setLeaveFormDays] = useState(0);
+  const [leaveConflicts, setLeaveConflicts] = useState<EmployeeLeaveRequest[]>([]);
+  const [leaveCalView, setLeaveCalView] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() });
+
   // ── Profile State ────────────────────────────────────────────────
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfileDoc | null>(null);
@@ -864,7 +979,7 @@ export default function DashboardPage() {
 
   async function loadDashboardData(token: string) {
     const meRes = await meApi(token);
-    setMe({ id: meRes.id, role: meRes.role, full_name: meRes.full_name, email: meRes.email });
+    setMe({ id: meRes.id, role: meRes.role, full_name: meRes.full_name, email: meRes.email, department: meRes.department });
     // Load MongoDB profile
     mongoGetProfileApi(meRes.id).then(p => setUserProfile(p)).catch(() => {});
 
@@ -956,8 +1071,13 @@ export default function DashboardPage() {
 
     // ── Load MongoDB courses for all roles ────────────────────────
     try {
+      const courseParams = meRes.role === "employee" && meRes.department
+        ? { category: meRes.department }
+        : undefined;
       const [mongoCoursesRes, mongoStatsRes] = await Promise.all([
-        mongoListCoursesApi(),
+        meRes.role === "employee"
+          ? mongoListCoursesWithLessonsApi(courseParams)
+          : mongoListCoursesApi(courseParams),
         mongoGetCourseStatsApi(),
       ]);
       setMongoCourses(mongoCoursesRes);
@@ -1000,7 +1120,26 @@ export default function DashboardPage() {
       void fetchLearningFlow(true);
       void fetchAssessmentAnalytics(true);
     }
+    if (activeTab === "notifications") void fetchMnData(true);
     if (activeTab === "access-control" && !accData) void accLoad();
+    if (activeTab === "emp-progress") void fetchEmpProgress(true);
+    if (activeTab === "emp-performance") void fetchEmpPerformance();
+    if (activeTab === "emp-leaderboard") void fetchEmpLeaderboard();
+    if (activeTab === "emp-schedule") void fetchEmpSchedule();
+    if (activeTab === "emp-role-access") void fetchEmpRoleAccess();
+    if (activeTab === "emp-ideas") void fetchEmpIdeas();
+    if (activeTab === "emp-leaves") void fetchLeaveWorkspace();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Reset employee learning drill-down when leaving the learning tab
+  useEffect(() => {
+    if (activeTab !== "learning") {
+      setEmpLearnView("courses");
+      setEmpLearnCourse(null);
+      setEmpLearnModuleIdx(0);
+      setEmpLearnLesson(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -1015,18 +1154,77 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Auto-refresh notifications every 30s while on the Notifications tab
+  useEffect(() => {
+    if (activeTab !== "notifications") return;
+    const id = setInterval(() => { void fetchMnData(); }, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Auto-refresh employee progress every 30s while on Progress tab
+  useEffect(() => {
+    if (activeTab !== "emp-progress") return;
+    const id = setInterval(() => { void fetchEmpProgress(); }, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Re-fetch leaderboard when dept/timeframe filter changes
+  useEffect(() => {
+    if (activeTab === "emp-leaderboard") void fetchEmpLeaderboard();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empLbDept, empLbTimeframe]);
+
+  // Re-fetch schedule when filter changes
+  useEffect(() => {
+    if (activeTab === "emp-schedule") void fetchEmpSchedule();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empScheduleFilter, empScheduleType]);
+
+  // Re-fetch role access when selected role changes
+  useEffect(() => {
+    if (activeTab === "emp-role-access") void fetchEmpRoleAccess();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empSelectedRole]);
+
+  // Re-fetch ideas when filter/sort changes
+  useEffect(() => {
+    if (activeTab === "emp-ideas") void fetchEmpIdeas();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empIdeaCategory, empIdeaSort]);
+
+  // Auto-refresh leave workspace every 30s while on leaves tab
+  useEffect(() => {
+    if (activeTab !== "emp-leaves") return;
+    const id = setInterval(() => { void fetchLeaveWorkspace(); }, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Re-fetch leave requests when status filter changes
+  useEffect(() => {
+    if (activeTab === "emp-leaves" && me) void fetchLeaveRequests(me.full_name);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaveStatusFilter]);
+
   // ── MongoDB Auto-Sync (polls all MongoDB collections every 30s) ────
   const syncMongoData = useCallback(async () => {
     try {
+      const courseParams = me?.role === "employee" && me?.department
+        ? { category: me.department }
+        : undefined;
       const [mongoCoursesRes, mongoStatsRes] = await Promise.all([
-        mongoListCoursesApi(),
+        me?.role === "employee"
+          ? mongoListCoursesWithLessonsApi(courseParams)
+          : mongoListCoursesApi(courseParams),
         mongoGetCourseStatsApi(),
       ]);
       setMongoCourses(mongoCoursesRes);
       setMongoCourseStats(mongoStatsRes);
       setMongoLastSync(new Date());
     } catch { /* non-critical — keep stale data if network error */ }
-  }, []);
+  }, [me]);
 
   // Stable ref so the interval always calls the latest closure
   const syncMongoRef = useRef(syncMongoData);
@@ -1080,6 +1278,233 @@ export default function DashboardPage() {
       setAsAIQuizResult(res.questions);
     } catch { setAsAIQuizResult(null); }
     finally { setAsAIGenerating(false); }
+  }
+
+  // ── Employee Workspace fetch functions ───────────────────────────
+  async function fetchEmpProgress(force = false) {
+    if (force) setEmpProgressSyncing(true);
+    else if (!empProgress) setEmpProgressLoading(true);
+    try {
+      const data = await getEmpProgressApi(me?.id || "demo_user");
+      setEmpProgress(data);
+      setEmpProgressLastSync(new Date());
+    } catch { /* keep stale */ }
+    finally { setEmpProgressLoading(false); setEmpProgressSyncing(false); }
+  }
+
+  async function fetchEmpPerformance() {
+    if (!empPerf) setEmpPerfLoading(true);
+    try {
+      const data = await getEmpPerformanceApi(me?.id || "demo_user");
+      setEmpPerf(data);
+    } catch { /* keep stale */ }
+    finally { setEmpPerfLoading(false); }
+  }
+
+  async function fetchEmpLeaderboard() {
+    if (!empLb) setEmpLbLoading(true);
+    try {
+      const data = await getEmpLeaderboardApi({ department: empLbDept, timeframe: empLbTimeframe });
+      setEmpLb(data);
+    } catch { /* keep stale */ }
+    finally { setEmpLbLoading(false); }
+  }
+
+  async function fetchEmpSchedule() {
+    if (!empSchedule) setEmpScheduleLoading(true);
+    try {
+      const data = await getEmpScheduleApi({ user_id: me?.id || "demo_user", status: empScheduleFilter === "all" ? undefined : empScheduleFilter, type: empScheduleType === "all" ? undefined : empScheduleType });
+      setEmpSchedule(data);
+    } catch { /* keep stale */ }
+    finally { setEmpScheduleLoading(false); }
+  }
+
+  async function fetchEmpRoleAccess() {
+    if (!empRoleAccess) setEmpRoleAccessLoading(true);
+    try {
+      const data = await getEmpRoleAccessApi(empSelectedRole, undefined, me?.id);
+      setEmpRoleAccess(data);
+    } catch { /* keep stale */ }
+    finally { setEmpRoleAccessLoading(false); }
+  }
+
+  async function fetchEmpIdeas() {
+    if (!empIdeas) setEmpIdeasLoading(true);
+    try {
+      const data = await getEmpIdeasApi({ category: empIdeaCategory === "all" ? undefined : empIdeaCategory, sort_by: empIdeaSort });
+      setEmpIdeas(data);
+    } catch { /* keep stale */ }
+    finally { setEmpIdeasLoading(false); }
+  }
+
+  async function handleCreateEmpTask() {
+    if (!empNewTaskTitle.trim()) { setEmpTaskMsg("Please enter a task title."); return; }
+    setEmpTaskCreating(true); setEmpTaskMsg(null);
+    try {
+      await createEmpTaskApi({
+        user_id: me?.id || "demo_user",
+        title: empNewTaskTitle,
+        type: empNewTaskType,
+        priority: empNewTaskPriority,
+        due_date: empNewTaskDue || undefined,
+        course_title: empNewTaskCourse || undefined,
+      });
+      setEmpTaskMsg("Task created successfully.");
+      setEmpNewTaskTitle(""); setEmpNewTaskDue(""); setEmpNewTaskCourse("");
+      await fetchEmpSchedule();
+    } catch (e) { setEmpTaskMsg(e instanceof Error ? e.message : "Failed to create task."); }
+    finally { setEmpTaskCreating(false); }
+  }
+
+  async function handleUpdateTaskStatus(taskId: string, status: string) {
+    try {
+      await updateEmpTaskApi(taskId, { status });
+      await fetchEmpSchedule();
+    } catch { /* ignore */ }
+  }
+
+  async function handleDeleteTask(taskId: string) {
+    try {
+      await deleteEmpTaskApi(taskId);
+      await fetchEmpSchedule();
+    } catch { /* ignore */ }
+  }
+
+  async function handleSubmitIdea() {
+    if (!empNewIdeaTitle.trim() || !empNewIdeaDesc.trim()) { setEmpIdeaMsg("Please fill in title and description."); return; }
+    setEmpIdeaSubmitting(true); setEmpIdeaMsg(null);
+    try {
+      await submitEmpIdeaApi({
+        user_id: me?.id || "demo_user",
+        user_name: me?.full_name || "Employee",
+        department: "",
+        title: empNewIdeaTitle,
+        description: empNewIdeaDesc,
+        category: empNewIdeaCat,
+      });
+      setEmpIdeaMsg("Idea submitted successfully!");
+      setEmpNewIdeaTitle(""); setEmpNewIdeaDesc(""); setEmpShowIdeaForm(false);
+      await fetchEmpIdeas();
+    } catch (e) { setEmpIdeaMsg(e instanceof Error ? e.message : "Failed to submit idea."); }
+    finally { setEmpIdeaSubmitting(false); }
+  }
+
+  async function handleVoteIdea(ideaId: string) {
+    try {
+      await voteEmpIdeaApi(ideaId, me?.id || "demo_user");
+      await fetchEmpIdeas();
+    } catch { /* ignore */ }
+  }
+
+  // ── Leave Management Workspace fetch ─────────────────────────────────
+  async function fetchLeaveWorkspace() {
+    const empName = me?.full_name || "";
+    if (!empName) return;
+    setLeaveLoading(true);
+    try {
+      const [bal, reqs, pols, trends, cal] = await Promise.all([
+        getLeaveBalanceApi(empName).catch(() => null),
+        getMyLeaveRequestsApi(empName, leaveStatusFilter === "all" ? undefined : leaveStatusFilter).catch(() => []),
+        getLeavePoliciesApi().catch(() => []),
+        getLeaveTrendsApi(empName).catch(() => null),
+        getLeaveCalendarApi(empName).catch(() => []),
+      ]);
+      if (bal) setLeaveBalance(bal);
+      setLeaveRequests(reqs as EmployeeLeaveRequest[]);
+      setLeavePolicies(pols as LeavePolicy[]);
+      if (trends) setLeaveTrends(trends);
+      setLeaveCalendar(cal as EmployeeLeaveRequest[]);
+    } catch { /* keep stale */ }
+    finally { setLeaveLoading(false); }
+  }
+
+  async function fetchLeaveRequests(empName: string) {
+    try {
+      const reqs = await getMyLeaveRequestsApi(empName, leaveStatusFilter === "all" ? undefined : leaveStatusFilter);
+      setLeaveRequests(reqs);
+    } catch { /* keep stale */ }
+  }
+
+  async function handleApplyLeave() {
+    const empName = me?.full_name || "";
+    if (!empName || !leaveFormStart || !leaveFormEnd || !leaveFormReason.trim()) {
+      setLeaveMsg("Please fill in all required fields.");
+      setLeaveMsgType("error");
+      return;
+    }
+    if (leaveFormDays <= 0) {
+      setLeaveMsg("End date must be after or equal to start date.");
+      setLeaveMsgType("error");
+      return;
+    }
+    if (leaveConflicts.length > 0) {
+      setLeaveMsg("Please resolve date conflicts before applying.");
+      setLeaveMsgType("error");
+      return;
+    }
+    setLeaveApplying(true);
+    setLeaveMsg(null);
+    try {
+      await applyLeaveApi({
+        employee_name: empName,
+        leave_type: leaveFormType,
+        start_date: leaveFormStart,
+        end_date: leaveFormEnd,
+        days: leaveFormDays,
+        reason: leaveFormReason,
+      });
+      setLeaveMsg("Leave application submitted successfully! Your manager will review it.");
+      setLeaveMsgType("success");
+      setLeaveFormStart(""); setLeaveFormEnd(""); setLeaveFormReason(""); setLeaveFormDays(0); setLeaveConflicts([]);
+      setLeaveActivePanel("history");
+      await fetchLeaveWorkspace();
+    } catch (e) {
+      setLeaveMsg(e instanceof Error ? e.message : "Failed to submit leave application.");
+      setLeaveMsgType("error");
+    }
+    finally { setLeaveApplying(false); }
+  }
+
+  async function handleLeaveDateChange(start: string, end: string) {
+    setLeaveFormStart(start);
+    setLeaveFormEnd(end);
+    if (start && end) {
+      const s = new Date(start);
+      const e = new Date(end);
+      if (e >= s) {
+        const diff = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+        setLeaveFormDays(diff);
+        const empName = me?.full_name || "";
+        if (empName) {
+          try {
+            const conflicts = await checkLeaveConflictsApi(empName, start, end);
+            setLeaveConflicts(conflicts);
+          } catch { setLeaveConflicts([]); }
+        }
+      } else {
+        setLeaveFormDays(0);
+      }
+    } else {
+      setLeaveFormDays(0);
+      setLeaveConflicts([]);
+    }
+  }
+
+  // ── Notifications Workspace fetch ────────────────────────────────────
+  async function fetchMnData(force = false) {
+    if (force) setMnSyncing(true);
+    else if (!mnData.length) setMnLoading(true);
+    try {
+      const [listRes, summaryRes] = await Promise.all([
+        getMongoNotificationsApi({ limit: 100 }),
+        getMongoNotifSummaryApi(),
+      ]);
+      setMnData(listRes.notifications);
+      setMnCounts({ total: listRes.total, unread: listRes.unread, urgent: listRes.urgent, category_counts: listRes.category_counts });
+      setMnSummary(summaryRes);
+      setMnLastSync(new Date());
+    } catch { /* keep stale */ }
+    finally { setMnLoading(false); setMnSyncing(false); }
   }
 
   async function pollJobUntilDone(token: string, jobId: string): Promise<JobStatusOut> {
@@ -2024,6 +2449,9 @@ export default function DashboardPage() {
           <div style={{ minWidth: 0 }}>
             <div style={s.userName}>{me?.full_name ?? "Loading…"}</div>
             <div style={{ ...s.userRole, color: roleAccent }}>{me ? roleLabel(me.role) : ""}</div>
+            {me?.role === "employee" && me?.department && (
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, fontWeight: 600 }}>{me.department}</div>
+            )}
           </div>
         </div>
 
@@ -2260,92 +2688,311 @@ export default function DashboardPage() {
               {/* ── MongoDB Professional Courses (Learning tab) ── */}
               {mongoCourses.length > 0 && (
                 <Card>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
-                    <CardHeader
-                      title="Professional Training Courses"
-                      subtitle={`${mongoCourses.length} courses across Sales, Support & Operations`}
-                      icon="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                    />
-                    {canManageOnboarding && (
-                      <button onClick={() => setActiveTab("courses-mongo")} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 8, border: "1.5px solid #4f46e5", background: "#eef2ff", color: "#4f46e5", cursor: "pointer" }}>
-                        Manage Courses →
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Category filter tabs */}
-                  {(() => {
-                    const filtered = learningCatFilter ? mongoCourses.filter(c => c.category === learningCatFilter) : mongoCourses;
+                  {/* ── EMPLOYEE DRILL-DOWN VIEW ── */}
+                  {me?.role === "employee" ? (() => {
                     const catColor: Record<string, string> = { Sales: "#0891b2", Support: "#7c3aed", Operations: "#dc2626" };
-                    return (
-                      <>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, marginTop: 8 }}>
-                          {["", "Sales", "Support", "Operations"].map((cat) => (
-                            <button key={cat || "all"} onClick={() => setLearningCatFilter(cat)} style={{
-                              padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
-                              borderColor: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#e2e8f0",
-                              background: learningCatFilter === cat ? ((catColor[cat] ?? "#4f46e5") + "15") : "#f8fafc",
-                              color: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#64748b",
-                              fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                            }}>
-                              {cat || "All"} ({cat ? mongoCourses.filter(c => c.category === cat).length : mongoCourses.length})
-                            </button>
-                          ))}
-                        </div>
+                    const cc = empLearnCourse ? (catColor[empLearnCourse.category] ?? "#4f46e5") : "#4f46e5";
 
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
-                          {filtered.map((course) => {
-                            const cc = catColor[course.category] ?? "#4f46e5";
-                            const statusStyle: Record<string, { color: string; bg: string }> = {
-                              Published: { color: "#059669", bg: "#d1fae5" },
-                              Draft: { color: "#d97706", bg: "#fef3c7" },
-                              Archived: { color: "#6b7280", bg: "#f3f4f6" },
-                            };
-                            const ss = statusStyle[course.status] ?? { color: "#6b7280", bg: "#f3f4f6" };
-                            return (
-                              <div key={course._id} style={{ borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column" }}>
-                                <div style={{ height: 4, background: cc }} />
-                                <div style={{ padding: "14px 16px", flex: 1 }}>
-                                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-                                    <Badge label={course.category} color={cc} bg={`${cc}15`} />
-                                    <Badge label={course.level} color="#374151" bg="#f1f5f9" />
-                                    <Badge label={course.status} color={ss.color} bg={ss.bg} />
-                                    {course.isNew && <Badge label="New" color="#7c3aed" bg="#f5f3ff" />}
-                                    {course.isRecommended && <Badge label="⭐ Recommended" color="#d97706" bg="#fef3c7" />}
-                                  </div>
-                                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 6, lineHeight: 1.3 }}>{course.title}</div>
-                                  <div style={{ fontSize: 12.5, color: "#64748b", lineHeight: 1.5, marginBottom: 10, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                                    {course.description}
-                                  </div>
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11.5, color: "#94a3b8" }}>
-                                    {course.instructor && <span>👩‍🏫 {course.instructor}</span>}
-                                    {course.duration && <span>⏱ {course.duration}</span>}
-                                    <span>📚 {course.modules?.length ?? 0} modules</span>
-                                    <span>📝 {course.assignments?.length ?? 0} assignments</span>
-                                    <span>❓ {course.quizzes?.length ?? 0} quizzes</span>
+                    // Breadcrumb
+                    const breadcrumb = (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#64748b", marginBottom: 14, flexWrap: "wrap" }}>
+                        <button onClick={() => { setEmpLearnView("courses"); setEmpLearnCourse(null); setEmpLearnModuleIdx(0); setEmpLearnLesson(null); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: empLearnView === "courses" ? "#0f172a" : "#4f46e5", fontWeight: empLearnView === "courses" ? 700 : 500, fontSize: 12.5, padding: 0 }}>
+                          All Courses
+                        </button>
+                        {empLearnCourse && (
+                          <>
+                            <span style={{ color: "#cbd5e1" }}>›</span>
+                            <button onClick={() => { setEmpLearnView("modules"); setEmpLearnLesson(null); }}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: empLearnView === "modules" ? "#0f172a" : "#4f46e5", fontWeight: empLearnView === "modules" ? 700 : 500, fontSize: 12.5, padding: 0 }}>
+                              {empLearnCourse.title}
+                            </button>
+                          </>
+                        )}
+                        {empLearnCourse && empLearnView !== "courses" && empLearnView !== "modules" && (
+                          <>
+                            <span style={{ color: "#cbd5e1" }}>›</span>
+                            <button onClick={() => { setEmpLearnView("lessons"); setEmpLearnLesson(null); }}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: empLearnView === "lessons" ? "#0f172a" : "#4f46e5", fontWeight: empLearnView === "lessons" ? 700 : 500, fontSize: 12.5, padding: 0 }}>
+                              {empLearnCourse.modules?.[empLearnModuleIdx]?.title ?? "Module"}
+                            </button>
+                          </>
+                        )}
+                        {empLearnLesson && empLearnView === "detail" && (
+                          <>
+                            <span style={{ color: "#cbd5e1" }}>›</span>
+                            <span style={{ color: "#0f172a", fontWeight: 700 }}>{empLearnLesson.title}</span>
+                          </>
+                        )}
+                      </div>
+                    );
+
+                    // VIEW 1 – Course list
+                    if (empLearnView === "courses") {
+                      const filtered = learningCatFilter ? mongoCourses.filter(c => c.category === learningCatFilter) : mongoCourses;
+                      return (
+                        <>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+                            <CardHeader title="My Training Courses" subtitle={`${mongoCourses.length} courses available`} icon="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                            {["", "Sales", "Support", "Operations"].map((cat) => (
+                              <button key={cat || "all"} onClick={() => setLearningCatFilter(cat)} style={{
+                                padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
+                                borderColor: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#e2e8f0",
+                                background: learningCatFilter === cat ? ((catColor[cat] ?? "#4f46e5") + "15") : "#f8fafc",
+                                color: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#64748b",
+                                fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                              }}>
+                                {cat || "All"} ({cat ? mongoCourses.filter(c => c.category === cat).length : mongoCourses.length})
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+                            {filtered.map((course) => {
+                              const c2 = catColor[course.category] ?? "#4f46e5";
+                              return (
+                                <div key={course._id} style={{ borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column" }}>
+                                  <div style={{ height: 4, background: c2 }} />
+                                  <div style={{ padding: "14px 16px", flex: 1 }}>
+                                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                                      <Badge label={course.category} color={c2} bg={`${c2}15`} />
+                                      <Badge label={course.level} color="#374151" bg="#f1f5f9" />
+                                      {course.isRecommended && <Badge label="⭐ Recommended" color="#d97706" bg="#fef3c7" />}
+                                    </div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 6, lineHeight: 1.3 }}>{course.title}</div>
+                                    <div style={{ fontSize: 12.5, color: "#64748b", lineHeight: 1.5, marginBottom: 10, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{course.description}</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11.5, color: "#94a3b8", marginBottom: 12 }}>
+                                      {course.instructor && <span>👩‍🏫 {course.instructor}</span>}
+                                      {course.duration && <span>⏱ {course.duration}</span>}
+                                      <span>📚 {course.modules?.length ?? 0} modules</span>
+                                    </div>
+                                    <button onClick={() => { setEmpLearnCourse(course); setEmpLearnModuleIdx(0); setEmpLearnView("modules"); }}
+                                      style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: c2, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                                      View Modules →
+                                    </button>
                                   </div>
                                 </div>
-                                {course.modules && course.modules.length > 0 && (
-                                  <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9", background: "#fafafa" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Modules</div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                      {course.modules.slice(0, 3).map((mod, idx) => (
-                                        <div key={idx} style={{ fontSize: 12, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
-                                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: cc + "20", color: cc, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</span>
-                                          {mod.title}
-                                        </div>
-                                      ))}
-                                      {course.modules.length > 3 && <div style={{ fontSize: 11, color: "#94a3b8", marginLeft: 24 }}>+{course.modules.length - 3} more modules</div>}
+                              );
+                            })}
+                          </div>
+                        </>
+                      );
+                    }
+
+                    // VIEW 2 – Module list
+                    if (empLearnView === "modules" && empLearnCourse) {
+                      return (
+                        <>
+                          {breadcrumb}
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>{empLearnCourse.title}</div>
+                            <div style={{ fontSize: 12.5, color: "#64748b" }}>{empLearnCourse.description}</div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {(empLearnCourse.modules ?? []).map((mod, idx) => (
+                              <div key={idx} style={{ borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+                                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: cc + "20", color: cc, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</span>
+                                  <div>
+                                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "#0f172a", marginBottom: 2 }}>{mod.title}</div>
+                                    {mod.description && <div style={{ fontSize: 12, color: "#64748b" }}>{mod.description}</div>}
+                                    <div style={{ display: "flex", gap: 10, fontSize: 11.5, color: "#94a3b8", marginTop: 4 }}>
+                                      {mod.duration && <span>⏱ {mod.duration}</span>}
+                                      <span>📖 {Array.isArray(mod.lessons) ? mod.lessons.length : 0} lessons</span>
                                     </div>
                                   </div>
-                                )}
+                                </div>
+                                <button onClick={() => { setEmpLearnModuleIdx(idx); setEmpLearnView("lessons"); }}
+                                  style={{ padding: "7px 16px", borderRadius: 8, border: `1.5px solid ${cc}`, background: "#fff", color: cc, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  View Lessons →
+                                </button>
                               </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    );
-                  })()}
+                            ))}
+                          </div>
+                        </>
+                      );
+                    }
+
+                    // VIEW 3 – Lesson list
+                    if (empLearnView === "lessons" && empLearnCourse) {
+                      const mod = empLearnCourse.modules?.[empLearnModuleIdx];
+                      const lessons = (mod?.lessons ?? []) as (CourseLessonDoc | string)[];
+                      return (
+                        <>
+                          {breadcrumb}
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>{mod?.title}</div>
+                            {mod?.description && <div style={{ fontSize: 12.5, color: "#64748b" }}>{mod.description}</div>}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {lessons.map((lesson, idx) => {
+                              const l = typeof lesson === "string" ? null : lesson as CourseLessonDoc;
+                              const title = l ? l.title : (lesson as string);
+                              const duration = l?.duration;
+                              const desc = l?.description;
+                              return (
+                                <div key={l?.id ?? idx} style={{ borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#fff", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+                                    <span style={{ width: 28, height: 28, borderRadius: "50%", background: cc + "15", color: cc, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</span>
+                                    <div>
+                                      <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{title}</div>
+                                      {desc && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{desc}</div>}
+                                      {duration && <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 3 }}>⏱ {duration}</div>}
+                                    </div>
+                                  </div>
+                                  {l && (
+                                    <button
+                                      disabled={empLearnLessonLoading}
+                                      onClick={async () => {
+                                        if (!empLearnCourse._id || !l.id) return;
+                                        setEmpLearnLessonLoading(true);
+                                        try {
+                                          const detail = await mongoGetLessonApi(empLearnCourse._id, l.id);
+                                          setEmpLearnLesson(detail);
+                                          setEmpLearnView("detail");
+                                          if (me?.id) {
+                                            trackLessonProgressApi({
+                                              userId: me.id,
+                                              courseTitle: empLearnCourse.title,
+                                              moduleIdx: empLearnModuleIdx,
+                                              lessonId: l.id,
+                                            }).catch(() => {});
+                                          }
+                                        } catch {
+                                          setEmpLearnLesson(l);
+                                          setEmpLearnView("detail");
+                                        }
+                                        finally { setEmpLearnLessonLoading(false); }
+                                      }}
+                                      style={{ padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${cc}`, background: "#fff", color: cc, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", opacity: empLearnLessonLoading ? 0.6 : 1 }}>
+                                      View Details →
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      );
+                    }
+
+                    // VIEW 4 – Lesson detail
+                    if (empLearnView === "detail" && empLearnLesson) {
+                      const paragraphs = (empLearnLesson.content ?? "").split("\n\n").filter(Boolean);
+                      return (
+                        <>
+                          {breadcrumb}
+                          <div style={{ maxWidth: 760 }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                              {empLearnLesson.module_title && <Badge label={empLearnLesson.module_title} color={cc} bg={cc + "15"} />}
+                              {empLearnLesson.duration && <Badge label={`⏱ ${empLearnLesson.duration}`} color="#374151" bg="#f1f5f9" />}
+                            </div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", lineHeight: 1.3, marginBottom: 8 }}>{empLearnLesson.title}</div>
+                            {empLearnLesson.description && (
+                              <div style={{ fontSize: 14, color: "#4f46e5", fontStyle: "italic", marginBottom: 20, lineHeight: 1.5, padding: "10px 14px", background: "#eef2ff", borderRadius: 8, borderLeft: `3px solid ${cc}` }}>
+                                {empLearnLesson.description}
+                              </div>
+                            )}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                              {paragraphs.map((para, i) => (
+                                <p key={i} style={{ fontSize: 14, color: "#334155", lineHeight: 1.75, margin: 0 }}>{para}</p>
+                              ))}
+                            </div>
+                            <div style={{ marginTop: 28, display: "flex", gap: 10 }}>
+                              <button onClick={() => { setEmpLearnView("lessons"); setEmpLearnLesson(null); }}
+                                style={{ padding: "9px 20px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#f8fafc", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                                ← Back to Lessons
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    }
+
+                    return null;
+                  })() : (
+                    /* ── NON-EMPLOYEE VIEW (admin/manager) — unchanged flat view ── */
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
+                        <CardHeader title="Professional Training Courses" subtitle={`${mongoCourses.length} courses across Sales, Support & Operations`} icon="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                        {canManageOnboarding && (
+                          <button onClick={() => setActiveTab("courses-mongo")} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 8, border: "1.5px solid #4f46e5", background: "#eef2ff", color: "#4f46e5", cursor: "pointer" }}>
+                            Manage Courses →
+                          </button>
+                        )}
+                      </div>
+                      {(() => {
+                        const filtered = learningCatFilter ? mongoCourses.filter(c => c.category === learningCatFilter) : mongoCourses;
+                        const catColor: Record<string, string> = { Sales: "#0891b2", Support: "#7c3aed", Operations: "#dc2626" };
+                        return (
+                          <>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, marginTop: 8 }}>
+                              {["", "Sales", "Support", "Operations"].map((cat) => (
+                                <button key={cat || "all"} onClick={() => setLearningCatFilter(cat)} style={{
+                                  padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
+                                  borderColor: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#e2e8f0",
+                                  background: learningCatFilter === cat ? ((catColor[cat] ?? "#4f46e5") + "15") : "#f8fafc",
+                                  color: learningCatFilter === cat ? (catColor[cat] ?? "#4f46e5") : "#64748b",
+                                  fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                                }}>
+                                  {cat || "All"} ({cat ? mongoCourses.filter(c => c.category === cat).length : mongoCourses.length})
+                                </button>
+                              ))}
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+                              {filtered.map((course) => {
+                                const cc2 = catColor[course.category] ?? "#4f46e5";
+                                const statusStyle: Record<string, { color: string; bg: string }> = {
+                                  Published: { color: "#059669", bg: "#d1fae5" },
+                                  Draft: { color: "#d97706", bg: "#fef3c7" },
+                                  Archived: { color: "#6b7280", bg: "#f3f4f6" },
+                                };
+                                const ss = statusStyle[course.status] ?? { color: "#6b7280", bg: "#f3f4f6" };
+                                return (
+                                  <div key={course._id} style={{ borderRadius: 12, border: "1.5px solid #e2e8f0", background: "#fff", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", display: "flex", flexDirection: "column" }}>
+                                    <div style={{ height: 4, background: cc2 }} />
+                                    <div style={{ padding: "14px 16px", flex: 1 }}>
+                                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                                        <Badge label={course.category} color={cc2} bg={`${cc2}15`} />
+                                        <Badge label={course.level} color="#374151" bg="#f1f5f9" />
+                                        <Badge label={course.status} color={ss.color} bg={ss.bg} />
+                                        {course.isNew && <Badge label="New" color="#7c3aed" bg="#f5f3ff" />}
+                                        {course.isRecommended && <Badge label="⭐ Recommended" color="#d97706" bg="#fef3c7" />}
+                                      </div>
+                                      <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 6, lineHeight: 1.3 }}>{course.title}</div>
+                                      <div style={{ fontSize: 12.5, color: "#64748b", lineHeight: 1.5, marginBottom: 10, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{course.description}</div>
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11.5, color: "#94a3b8" }}>
+                                        {course.instructor && <span>👩‍🏫 {course.instructor}</span>}
+                                        {course.duration && <span>⏱ {course.duration}</span>}
+                                        <span>📚 {course.modules?.length ?? 0} modules</span>
+                                        <span>📝 {course.assignments?.length ?? 0} assignments</span>
+                                        <span>❓ {course.quizzes?.length ?? 0} quizzes</span>
+                                      </div>
+                                    </div>
+                                    {course.modules && course.modules.length > 0 && (
+                                      <div style={{ padding: "10px 16px", borderTop: "1px solid #f1f5f9", background: "#fafafa" }}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Modules</div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                          {course.modules.slice(0, 3).map((mod, idx) => (
+                                            <div key={idx} style={{ fontSize: 12, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
+                                              <span style={{ width: 18, height: 18, borderRadius: "50%", background: cc2 + "20", color: cc2, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{idx + 1}</span>
+                                              {mod.title}
+                                            </div>
+                                          ))}
+                                          {course.modules.length > 3 && <div style={{ fontSize: 11, color: "#94a3b8", marginLeft: 24 }}>+{course.modules.length - 3} more modules</div>}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </>
+                  )}
                 </Card>
               )}
 
@@ -2412,7 +3059,7 @@ export default function DashboardPage() {
               {certMessage && <MsgBox msg={certMessage} type={certMessage.toLowerCase().includes("fail") || certMessage.toLowerCase().includes("error") ? "error" : "success"} />}
 
               {/* ── Learning Flow Analytics Card ─────────────────────── */}
-              {(() => {
+              {role !== "employee" && (() => {
                 const lfBg     = lfDark ? "#0f172a" : "#ffffff";
                 const lfCard   = lfDark ? "#1e293b" : "#f8fafc";
                 const lfBorder = lfDark ? "#334155" : "#e2e8f0";
@@ -3031,7 +3678,7 @@ export default function DashboardPage() {
               })()}
 
               {/* ── Assessment Analytics Card ──────────────────────── */}
-              {(() => {
+              {role !== "employee" && (() => {
                 const asBg     = asDark ? "#0f172a" : "#ffffff";
                 const asCard   = asDark ? "#1e293b" : "#f8fafc";
                 const asBorder = asDark ? "#334155" : "#e2e8f0";
@@ -4532,48 +5179,453 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* ─── NOTIFICATIONS ─── */}
-          {activeTab === "notifications" && (
-            <>
-              <Card>
-                <CardHeader title="Notifications" subtitle={`${notifications.filter(n => !n.is_read).length} unread`} icon="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                  <PrimaryBtn onClick={async () => {
-                    if (!accessToken) return;
-                    try { await markAllNotificationsReadApi(accessToken); setNotifications(p => p.map(n => ({ ...n, is_read: true }))); } catch { /* ignore */ }
-                  }}>Mark All Read</PrimaryBtn>
-                  <GhostBtn onClick={async () => {
-                    if (!accessToken) return;
-                    const res = await listNotificationsApi(accessToken);
-                    setNotifications(res);
-                  }}>Refresh</GhostBtn>
+          {/* ─── NOTIFICATIONS WORKSPACE ─── */}
+          {activeTab === "notifications" && (() => {
+            const mnBorder  = "#e2e8f0";
+            const mnText    = "#0f172a";
+            const mnMuted   = "#64748b";
+            const mnAccent  = "#4f46e5";
+
+            const mnCatMeta: Record<string, { icon: string; color: string; bg: string }> = {
+              learning: { icon: "📚", color: "#2563eb", bg: "#eff6ff" },
+              hr:       { icon: "👥", color: "#9333ea", bg: "#fdf4ff" },
+              team:     { icon: "🏆", color: "#059669", bg: "#ecfdf5" },
+              ai:       { icon: "🤖", color: "#0284c7", bg: "#f0f9ff" },
+              system:   { icon: "⚙️", color: "#ea580c", bg: "#fff7ed" },
+            };
+
+            const mnPri: Record<string, { bg: string; color: string; dot: string }> = {
+              high:   { bg: "#fef2f2", color: "#dc2626", dot: "#ef4444" },
+              medium: { bg: "#fffbeb", color: "#d97706", dot: "#f59e0b" },
+              low:    { bg: "#f0fdf4", color: "#16a34a", dot: "#22c55e" },
+            };
+
+            const timeAgo = (d: string) => {
+              const sec = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+              if (sec < 60)     return "Just now";
+              if (sec < 3600)   return `${Math.floor(sec / 60)}m ago`;
+              if (sec < 86400)  return `${Math.floor(sec / 3600)}h ago`;
+              if (sec < 172800) return "Yesterday";
+              return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            };
+
+            const mnFilters = [
+              { id: "all",      icon: "🔔", label: "All Notifications",  count: mnCounts.total },
+              { id: "unread",   icon: "●",  label: "Unread",             count: mnCounts.unread },
+              { id: "urgent",   icon: "🚨", label: "Urgent",             count: mnCounts.urgent },
+              { id: "learning", icon: "📚", label: "Learning & Courses", count: mnCounts.category_counts?.learning ?? 0 },
+              { id: "hr",       icon: "👥", label: "HR Announcements",   count: mnCounts.category_counts?.hr ?? 0 },
+              { id: "team",     icon: "🏆", label: "Team Updates",       count: mnCounts.category_counts?.team ?? 0 },
+              { id: "ai",       icon: "🤖", label: "AI Suggestions",     count: mnCounts.category_counts?.ai ?? 0 },
+              { id: "system",   icon: "⚙️", label: "System Alerts",     count: mnCounts.category_counts?.system ?? 0 },
+            ];
+
+            const mnFiltered = mnData.filter(n => {
+              if (mnSearch && !n.title.toLowerCase().includes(mnSearch.toLowerCase()) && !n.description.toLowerCase().includes(mnSearch.toLowerCase())) return false;
+              if (mnFilter === "unread")  return !n.is_read;
+              if (mnFilter === "urgent")  return n.priority === "high";
+              if (mnFilter !== "all")     return n.category === mnFilter;
+              return true;
+            }).sort((a, b) => {
+              if (mnSort === "priority") {
+                const ord: Record<string, number> = { high: 0, medium: 1, low: 2 };
+                return (ord[a.priority] ?? 2) - (ord[b.priority] ?? 2);
+              }
+              if (mnSort === "category") return a.category.localeCompare(b.category);
+              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
+
+            // ── CTA navigation handler ────────────────────────────────
+            const handleNotifAction = (notif: MongoNotification, e: React.MouseEvent) => {
+              e.stopPropagation();
+              // Silently mark read
+              if (!notif.is_read) {
+                markMongoNotifReadApi(notif._id).catch(() => {});
+                setMnData(prev => prev.map(n => n._id === notif._id ? { ...n, is_read: true } : n));
+                setMnCounts(prev => ({ ...prev, unread: Math.max(0, prev.unread - 1) }));
+              }
+              // Navigate to the appropriate tab
+              const t = notif.action_type;
+              const c = notif.category;
+              if (t === "start_course" || t === "view_feedback") {
+                // Learning & Courses → go directly to the Learning workspace
+                setActiveTab("learning");
+              } else if (t === "view_calendar") {
+                // Calendar events → Overview shows the dashboard summary / schedule context
+                setActiveTab("overview");
+              } else if (t === "read_more") {
+                if (notif.title.toLowerCase().includes("password")) {
+                  // Password reset → open the profile panel
+                  setShowProfilePanel(true);
+                } else if (c === "team") {
+                  // Team recognition / feedback → XP & achievements history
+                  setActiveTab("xp-history");
+                } else {
+                  // HR announcements, system alerts → Overview
+                  setActiveTab("overview");
+                }
+              } else if (t === "approve_request") {
+                setActiveTab("overview");
+              } else if (c === "ai") {
+                // Generic AI suggestions → AI Copilot
+                setActiveTab("copilot");
+              } else {
+                setActiveTab("overview");
+              }
+            };
+
+            return (
+              <div style={{ borderRadius: 20, overflow: "hidden", border: `1.5px solid ${mnBorder}`, boxShadow: "0 8px 40px rgba(0,0,0,0.08)" }}>
+
+                {/* ── Gradient Header ─────────────────────────────────── */}
+                <div style={{ background: "linear-gradient(135deg,#1e1b4b 0%,#312e81 55%,#4338ca 100%)", padding: "22px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <button
+                      onClick={() => setActiveTab("overview")}
+                      style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 10, padding: "7px 14px", color: "#ffffff", fontSize: 12, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: 6 }}
+                    >← Back</button>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.5px" }}>🔔 Notifications</span>
+                        {mnCounts.unread > 0 && (
+                          <span style={{ background: "#ef4444", borderRadius: 20, padding: "2px 10px", fontSize: 11, color: "#fff", fontWeight: 800 }}>{mnCounts.unread} unread</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 3 }}>
+                        {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                        {mnLastSync && <span style={{ marginLeft: 12 }}>· Last sync {timeAgo(mnLastSync.toISOString())}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.1)", borderRadius: 20, padding: "5px 12px" }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 0 3px rgba(34,197,94,0.3)" }} />
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>Live Feed</span>
+                    </div>
+                    <button
+                      onClick={() => { void fetchMnData(true); }}
+                      disabled={mnSyncing}
+                      style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 9, padding: "7px 16px", color: "#ffffff", fontSize: 12, fontWeight: 600, cursor: mnSyncing ? "wait" : "pointer", backdropFilter: "blur(8px)" }}
+                    >{mnSyncing ? "⟳ Syncing…" : "⟳ Sync"}</button>
+                  </div>
                 </div>
-                {notifications.length === 0 ? <div style={s.emptyState}>No notifications.</div> : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {notifications.map(n => (
-                      <div key={n.id} style={{ padding: "12px 16px", borderRadius: 8, background: n.is_read ? "#f8fafc" : "#eef2ff", border: `1px solid ${n.is_read ? "#e2e8f0" : "#c7d2fe"}`, cursor: n.is_read ? "default" : "pointer" }}
+
+                {/* ── 3-Column Body ──────────────────────────────────── */}
+                <div style={{ display: "grid", gridTemplateColumns: "252px 1fr 284px", minHeight: 620, background: "#f8fafc" }}>
+
+                  {/* ── LEFT SIDEBAR ─────────────────────────────────── */}
+                  <div style={{ background: "#ffffff", borderRight: `1px solid ${mnBorder}`, padding: "18px 0", display: "flex", flexDirection: "column" }}>
+
+                    {/* Search */}
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <div style={{ position: "relative" }}>
+                        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: mnMuted }}>🔍</span>
+                        <input
+                          value={mnSearch}
+                          onChange={e => setMnSearch(e.target.value)}
+                          placeholder="Search notifications…"
+                          style={{ width: "100%", paddingLeft: 30, paddingRight: 10, paddingTop: 9, paddingBottom: 9, border: `1.5px solid ${mnBorder}`, borderRadius: 10, fontSize: 12, outline: "none", boxSizing: "border-box", color: mnText, background: "#f8fafc", transition: "border-color 0.15s" }}
+                          onFocus={e => { (e.target as HTMLInputElement).style.borderColor = mnAccent; }}
+                          onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = mnBorder; }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sort */}
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <select
+                        value={mnSort}
+                        onChange={e => setMnSort(e.target.value)}
+                        style={{ width: "100%", padding: "8px 10px", border: `1.5px solid ${mnBorder}`, borderRadius: 10, fontSize: 12, color: mnText, background: "#f8fafc", outline: "none", cursor: "pointer" }}
+                      >
+                        <option value="newest">↓ Newest First</option>
+                        <option value="priority">⚡ By Priority</option>
+                        <option value="category">⊞ By Category</option>
+                      </select>
+                    </div>
+
+                    <div style={{ height: 1, background: mnBorder, margin: "0 14px 14px" }} />
+
+                    {/* Filter categories */}
+                    <div style={{ padding: "0 6px", flex: 1, overflowY: "auto" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: mnMuted, letterSpacing: "0.1em", textTransform: "uppercase", padding: "0 8px 8px" }}>Filter</div>
+                      {mnFilters.map(f => {
+                        const isActive = mnFilter === f.id;
+                        return (
+                          <button
+                            key={f.id}
+                            onClick={() => setMnFilter(f.id)}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "9px 10px", borderRadius: 10, background: isActive ? "#eef2ff" : "transparent", border: "none", cursor: "pointer", marginBottom: 2 }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: f.id === "unread" ? 9 : 15 }}>{f.icon}</span>
+                              <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? mnAccent : mnText }}>{f.label}</span>
+                            </div>
+                            {f.count > 0 && (
+                              <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 20, padding: "2px 7px", background: isActive ? mnAccent : f.id === "urgent" ? "#fee2e2" : f.id === "unread" ? "#e0e7ff" : "#f1f5f9", color: isActive ? "#fff" : f.id === "urgent" ? "#dc2626" : f.id === "unread" ? "#4f46e5" : mnMuted }}>
+                                {f.count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Mark all read */}
+                    <div style={{ padding: "14px 14px 0", borderTop: `1px solid ${mnBorder}`, marginTop: 8 }}>
+                      <button
                         onClick={async () => {
-                          if (n.is_read || !accessToken) return;
-                          try { await markNotificationReadApi(accessToken, n.id); setNotifications(p => p.map(x => x.id === n.id ? { ...x, is_read: true } : x)); } catch { /* ignore */ }
-                        }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: n.is_read ? "#475569" : "#1e1b4b" }}>{n.title}</div>
-                            <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{n.message}</div>
+                          await markAllMongoNotifReadApi().catch(() => {});
+                          setMnData(prev => prev.map(n => ({ ...n, is_read: true })));
+                          setMnCounts(prev => ({ ...prev, unread: 0 }));
+                        }}
+                        style={{ width: "100%", padding: "9px", borderRadius: 10, background: "#f1f5f9", border: "none", fontSize: 12, fontWeight: 600, color: mnMuted, cursor: "pointer" }}
+                      >✓ Mark All as Read</button>
+                    </div>
+                  </div>
+
+                  {/* ── CENTER FEED ───────────────────────────────────── */}
+                  <div style={{ padding: "20px 18px", overflowY: "auto", maxHeight: 720 }}>
+
+                    {/* Feed header */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: mnText }}>{mnFilters.find(f => f.id === mnFilter)?.label ?? "All Notifications"}</div>
+                        <div style={{ fontSize: 11, color: mnMuted, marginTop: 2 }}>
+                          {mnFiltered.length} item{mnFiltered.length !== 1 ? "s" : ""}
+                          {mnSearch && <span style={{ color: mnAccent }}> · matching "{mnSearch}"</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Loading skeleton */}
+                    {mnLoading && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {[1, 2, 3, 4].map(i => (
+                          <div key={i} style={{ background: "#fff", borderRadius: 14, padding: 18, border: `1px solid ${mnBorder}`, opacity: 1 - i * 0.15 }}>
+                            <div style={{ display: "flex", gap: 14 }}>
+                              <div style={{ width: 42, height: 42, borderRadius: 12, background: "#e2e8f0" }} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ height: 13, background: "#e2e8f0", borderRadius: 6, width: "55%", marginBottom: 8 }} />
+                                <div style={{ height: 11, background: "#f1f5f9", borderRadius: 6, width: "90%", marginBottom: 5 }} />
+                                <div style={{ height: 11, background: "#f1f5f9", borderRadius: 6, width: "70%" }} />
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                            <Badge label={n.type} color="#7c3aed" bg="#f5f3ff" />
-                            {!n.is_read && <span style={{ fontSize: 10, color: "#6366f1", fontWeight: 700 }}>● UNREAD</span>}
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Empty state */}
+                    {!mnLoading && mnFiltered.length === 0 && (
+                      <div style={{ textAlign: "center", padding: "64px 20px" }}>
+                        <div style={{ fontSize: 52, marginBottom: 14 }}>🎉</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: mnText, marginBottom: 6 }}>All caught up!</div>
+                        <div style={{ fontSize: 13, color: mnMuted }}>
+                          {mnSearch ? `No results for "${mnSearch}"` : "Nothing in this category right now."}
+                        </div>
+                        {mnSearch && (
+                          <button onClick={() => setMnSearch("")} style={{ marginTop: 14, padding: "7px 18px", borderRadius: 9, background: "#eef2ff", color: mnAccent, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Clear Search</button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Notification cards */}
+                    {!mnLoading && mnFiltered.map(notif => {
+                      const cat    = mnCatMeta[notif.category] ?? mnCatMeta.system;
+                      const pri    = mnPri[notif.priority]   ?? mnPri.low;
+                      const isUnrd = !notif.is_read;
+                      return (
+                        <div
+                          key={notif._id}
+                          onClick={async () => {
+                            if (!isUnrd) return;
+                            await markMongoNotifReadApi(notif._id).catch(() => {});
+                            setMnData(prev => prev.map(n => n._id === notif._id ? { ...n, is_read: true } : n));
+                            setMnCounts(prev => ({ ...prev, unread: Math.max(0, prev.unread - 1) }));
+                          }}
+                          style={{ background: isUnrd ? "#ffffff" : "#f8fafc", border: `1.5px solid ${isUnrd ? "#c7d2fe" : mnBorder}`, borderLeft: `4px solid ${isUnrd ? mnAccent : "#e2e8f0"}`, borderRadius: 14, padding: "15px 16px", marginBottom: 12, cursor: isUnrd ? "pointer" : "default", boxShadow: isUnrd ? "0 2px 14px rgba(79,70,229,0.07)" : "0 1px 4px rgba(0,0,0,0.04)", transition: "box-shadow 0.2s, transform 0.15s" }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = "0 6px 28px rgba(0,0,0,0.1)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)"; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = isUnrd ? "0 2px 14px rgba(79,70,229,0.07)" : "0 1px 4px rgba(0,0,0,0.04)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
+                        >
+                          <div style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
+                            {/* Category icon */}
+                            <div style={{ width: 42, height: 42, borderRadius: 12, background: cat.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{cat.icon}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {/* Title row */}
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 4 }}>
+                                <div style={{ fontSize: 13, fontWeight: isUnrd ? 700 : 600, color: isUnrd ? "#1e1b4b" : "#374151", lineHeight: 1.45, display: "flex", alignItems: "center", gap: 6 }}>
+                                  {notif.title}
+                                  {isUnrd && <span style={{ width: 6, height: 6, borderRadius: "50%", background: mnAccent, display: "inline-block", flexShrink: 0 }} />}
+                                </div>
+                                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, fontWeight: 700, background: pri.bg, color: pri.color, flexShrink: 0, whiteSpace: "nowrap" }}>
+                                  <span style={{ color: pri.dot, marginRight: 3 }}>●</span>
+                                  {notif.priority.charAt(0).toUpperCase() + notif.priority.slice(1)}
+                                </span>
+                              </div>
+                              {/* Description */}
+                              <div style={{ fontSize: 12, color: isUnrd ? "#475569" : mnMuted, lineHeight: 1.6, marginBottom: 10, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+                                {notif.description}
+                              </div>
+                              {/* Meta + actions */}
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: mnMuted, flexWrap: "wrap" }}>
+                                  {notif.sender_name && (
+                                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                      <span style={{ width: 17, height: 17, borderRadius: "50%", background: cat.bg, color: cat.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800 }}>
+                                        {(notif.sender_avatar ?? notif.sender_name.slice(0, 2)).toUpperCase()}
+                                      </span>
+                                      {notif.sender_name}
+                                    </span>
+                                  )}
+                                  <span>{timeAgo(notif.created_at)}</span>
+                                  {notif.due_date && (
+                                    <span style={{ color: "#dc2626", fontWeight: 600 }}>
+                                      ⏰ {new Date(notif.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  {notif.action_label && (
+                                    <button
+                                      onClick={e => handleNotifAction(notif, e)}
+                                      style={{ padding: "5px 12px", borderRadius: 8, background: cat.bg, color: cat.color, border: `1px solid ${cat.color}30`, fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "opacity 0.15s" }}
+                                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
+                                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                                    >{notif.action_label} →</button>
+                                  )}
+                                  <button
+                                    onClick={async e => {
+                                      e.stopPropagation();
+                                      await archiveMongoNotifApi(notif._id).catch(() => {});
+                                      setMnData(prev => prev.filter(n => n._id !== notif._id));
+                                      setMnCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1), unread: notif.is_read ? prev.unread : Math.max(0, prev.unread - 1) }));
+                                    }}
+                                    style={{ padding: "5px 9px", borderRadius: 8, background: "#f8fafc", border: `1px solid ${mnBorder}`, fontSize: 12, color: mnMuted, cursor: "pointer" }}
+                                    title="Archive"
+                                  >✕</button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>{new Date(n.created_at).toLocaleString()}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                )}
-              </Card>
-            </>
-          )}
+
+                  {/* ── RIGHT AI ASSISTANT PANEL ───────────────────────── */}
+                  <div style={{ background: "#ffffff", borderLeft: `1px solid ${mnBorder}`, padding: "20px 16px", overflowY: "auto", maxHeight: 720, display: "flex", flexDirection: "column", gap: 14 }}>
+
+                    {/* Today's Priority Summary */}
+                    <div style={{ background: "linear-gradient(135deg,#1e1b4b,#4338ca)", borderRadius: 16, padding: "16px 15px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,0.65)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>🎯 Today's Priority Summary</div>
+                      {mnSummary?.urgent_tasks.slice(0, 3).map((task, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#f87171", flexShrink: 0, marginTop: 5 }} />
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#ffffff", lineHeight: 1.4 }}>{task.title}</div>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.55)", marginTop: 1 }}>Due: {task.due}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {(!mnSummary || !mnSummary.urgent_tasks.length) && (
+                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", textAlign: "center", padding: "8px 0" }}>No urgent tasks today 🎉</div>
+                      )}
+                    </div>
+
+                    {/* Deadlines Approaching */}
+                    {(mnSummary?.deadlines_approaching ?? []).length > 0 && (
+                      <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#92400e", letterSpacing: "0.08em", marginBottom: 10 }}>⏰ DEADLINES APPROACHING</div>
+                        {mnSummary!.deadlines_approaching.map((d, i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: i < mnSummary!.deadlines_approaching.length - 1 ? 7 : 0, fontSize: 11 }}>
+                            <span style={{ color: "#78350f", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 120 }}>{d.title}</span>
+                            <span style={{ color: "#d97706", fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>{d.deadline}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* AI Suggested Course */}
+                    {mnSummary?.suggested_course && (
+                      <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#075985", letterSpacing: "0.08em", marginBottom: 8 }}>🤖 AI SUGGESTED COURSE</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#0c4a6e", marginBottom: 4, lineHeight: 1.4 }}>{mnSummary.suggested_course.title}</div>
+                        <div style={{ fontSize: 11, color: "#0369a1", marginBottom: 8, lineHeight: 1.5 }}>{mnSummary.suggested_course.reason}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 10, background: "#e0f2fe", color: "#0284c7", padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>{mnSummary.suggested_course.category}</span>
+                          <span style={{ fontSize: 10, color: mnMuted }}>{mnSummary.suggested_course.duration}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Productivity Tip */}
+                    {mnSummary?.productivity_tip && (
+                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#14532d", letterSpacing: "0.08em", marginBottom: 6 }}>💡 PRODUCTIVITY TIP</div>
+                        <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.6 }}>{mnSummary.productivity_tip}</div>
+                      </div>
+                    )}
+
+                    {/* Quick Actions */}
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: mnMuted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Quick Actions</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          { icon: "📖", label: "Resume Learning", fn: () => setActiveTab("learning") },
+                          { icon: "✓",  label: "Mark All Read",   fn: async () => { await markAllMongoNotifReadApi().catch(() => {}); setMnData(p => p.map(n => ({ ...n, is_read: true }))); setMnCounts(p => ({ ...p, unread: 0 })); } },
+                          { icon: "📅", label: "View Calendar",   fn: () => setActiveTab("overview") },
+                          { icon: "🤖", label: "Ask AI",          fn: () => setActiveTab("copilot") },
+                        ].map((btn, i) => (
+                          <button
+                            key={i}
+                            onClick={btn.fn}
+                            style={{ padding: "10px 6px", borderRadius: 10, background: "#f8fafc", border: `1.5px solid ${mnBorder}`, fontSize: 11, fontWeight: 600, color: mnText, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s" }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#eef2ff"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#a5b4fc"; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#f8fafc"; (e.currentTarget as HTMLButtonElement).style.borderColor = mnBorder; }}
+                          >
+                            <span style={{ fontSize: 18 }}>{btn.icon}</span>
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Skill Growth Opportunities */}
+                    {(mnSummary?.skill_opportunities ?? []).length > 0 && (
+                      <div style={{ background: "#fdf4ff", border: "1px solid #e9d5ff", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#581c87", letterSpacing: "0.08em", marginBottom: 8 }}>🚀 SKILL GROWTH</div>
+                        {mnSummary!.skill_opportunities.map((s, i) => (
+                          <div key={i} style={{ fontSize: 11, color: "#6b21a8", padding: "5px 0", borderBottom: i < mnSummary!.skill_opportunities.length - 1 ? "1px solid #f3e8ff" : "none", lineHeight: 1.45 }}>• {s}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Promotion Readiness */}
+                    {mnSummary?.promotion_ready && (
+                      <div style={{ background: "linear-gradient(135deg,#ecfdf5,#d1fae5)", border: "1px solid #6ee7b7", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#064e3b", letterSpacing: "0.08em", marginBottom: 6 }}>⭐ CAREER GROWTH</div>
+                        <div style={{ fontSize: 12, color: "#065f46", lineHeight: 1.6 }}>{mnSummary.promotion_ready}</div>
+                      </div>
+                    )}
+
+                    {/* Low Engagement Reminder */}
+                    {mnSummary?.low_engagement_reminder && (
+                      <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 14, padding: "13px 13px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#7c2d12", letterSpacing: "0.08em", marginBottom: 6 }}>📊 ENGAGEMENT</div>
+                        <div style={{ fontSize: 12, color: "#9a3412", lineHeight: 1.6 }}>{mnSummary.low_engagement_reminder}</div>
+                      </div>
+                    )}
+
+                    {/* Sync info footer */}
+                    <div style={{ fontSize: 10, color: mnMuted, textAlign: "center", paddingTop: 4 }}>
+                      Notifications Workspace v1.0 · Auto-syncs every 5 min
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ─── XP HISTORY ─── */}
           {activeTab === "xp-history" && (
@@ -6047,6 +7099,1276 @@ export default function DashboardPage() {
               </div>
             );
           })()}
+          {/* ═══════════════════════════════════════════════════════
+              EMP-PROGRESS WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-progress" && (() => {
+            const d = empProgress;
+            const s2 = d?.summary;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                {/* Header row */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Learning Progress</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Track your course completion and resume where you left off</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {empProgressLastSync && <span style={{ fontSize: 11.5, color: "#64748b" }}>Synced {empProgressLastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+                    <button onClick={() => fetchEmpProgress(true)} disabled={empProgressSyncing} style={{ padding: "7px 14px", borderRadius: 8, background: "#0891b2", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                      {empProgressSyncing ? "Syncing…" : "Sync Now"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Summary cards */}
+                {s2 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 14 }}>
+                    {[
+                      { label: "Overall Progress", value: `${s2.overall_progress_pct}%`, color: "#4f46e5", bg: "#eef2ff", icon: "M18 20V10M12 20V4M6 20v-6" },
+                      { label: "Completed", value: s2.completed, color: "#059669", bg: "#d1fae5", icon: "M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+                      { label: "In Progress", value: s2.in_progress, color: "#0891b2", bg: "#e0f2fe", icon: "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+                      { label: "Not Started", value: s2.not_started, color: "#f59e0b", bg: "#fef3c7", icon: "M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+                      { label: "Total Courses", value: s2.total_courses, color: "#7c3aed", bg: "#f5f3ff", icon: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" },
+                    ].map(item => (
+                      <div key={item.label} style={{ background: "#fff", borderRadius: 12, padding: "16px", border: `1.5px solid ${item.color}22`, boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: item.bg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                          <Icon d={item.icon} size={17} color={item.color} />
+                        </div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginTop: 3 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Overall progress bar */}
+                {s2 && (
+                  <div style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                      <span style={{ fontWeight: 700, color: "#0f172a" }}>Overall Learning Completion</span>
+                      <span style={{ fontWeight: 800, fontSize: 18, color: "#4f46e5" }}>{s2.overall_progress_pct}%</span>
+                    </div>
+                    <div style={{ height: 14, borderRadius: 7, background: "#e2e8f0", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${s2.overall_progress_pct}%`, background: "linear-gradient(90deg,#4f46e5,#7c3aed)", borderRadius: 7, transition: "width 0.6s ease" }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 20, marginTop: 12, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Completed", pct: s2.total_courses ? Math.round((s2.completed / s2.total_courses) * 100) : 0, color: "#059669" },
+                        { label: "In Progress", pct: s2.total_courses ? Math.round((s2.in_progress / s2.total_courses) * 100) : 0, color: "#0891b2" },
+                        { label: "Not Started", pct: s2.total_courses ? Math.round((s2.not_started / s2.total_courses) * 100) : 0, color: "#f59e0b" },
+                      ].map(item => (
+                        <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: "50%", background: item.color, display: "inline-block" }} />
+                          <span style={{ fontSize: 12.5, color: "#374151", fontWeight: 600 }}>{item.label} ({item.pct}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Course-wise progress */}
+                {empProgressLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading progress data…</div>
+                ) : d?.courses.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {d.courses.map(course => (
+                      <div key={course.id} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+                            <div style={{ width: 42, height: 42, borderRadius: 10, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{course.thumbnail}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 14.5, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{course.course_title}</div>
+                              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{course.course_category} · {course.completed_modules}/{course.total_modules} modules · {course.completed_lessons}/{course.total_lessons} lessons</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700,
+                              background: course.status === "completed" ? "#d1fae5" : course.status === "in_progress" ? "#dbeafe" : "#fef3c7",
+                              color: course.status === "completed" ? "#059669" : course.status === "in_progress" ? "#2563eb" : "#d97706",
+                            }}>{course.status === "completed" ? "Completed" : course.status === "in_progress" ? "In Progress" : "Not Started"}</span>
+                            <span style={{ fontSize: 18, fontWeight: 800, color: course.status === "completed" ? "#059669" : "#4f46e5" }}>{course.progress_pct}%</span>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ height: 8, borderRadius: 4, background: "#f1f5f9", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${course.progress_pct}%`, background: course.status === "completed" ? "linear-gradient(90deg,#059669,#10b981)" : "linear-gradient(90deg,#4f46e5,#7c3aed)", borderRadius: 4, transition: "width 0.4s" }} />
+                          </div>
+                        </div>
+                        {course.status === "in_progress" && (
+                          <div style={{ marginTop: 12 }}>
+                            <button
+                              onClick={() => {
+                                const matched = mongoCourses.find(c => c.title === course.course_title);
+                                const modIdx = course.resume_module_idx ?? 0;
+                                if (matched) {
+                                  setEmpLearnCourse(matched);
+                                  setEmpLearnModuleIdx(modIdx);
+                                  setEmpLearnLesson(null);
+                                  setEmpLearnView(course.resume_lesson_id ? "lessons" : "modules");
+                                } else {
+                                  setEmpLearnView("courses");
+                                }
+                                setActiveTab("learning");
+                              }}
+                              style={{ padding: "7px 16px", borderRadius: 8, background: "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                              Resume Learning →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No progress data yet. Click &quot;Sync Now&quot; to load your courses.</div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              EMP-PERFORMANCE WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-performance" && (() => {
+            const d = empPerf;
+            const s2 = d?.summary;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Performance Analytics</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Assessment scores, trends, and AI-powered improvement insights</div>
+                  </div>
+                  <button onClick={fetchEmpPerformance} style={{ padding: "7px 14px", borderRadius: 8, background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Refresh</button>
+                </div>
+
+                {/* Summary row */}
+                {s2 && (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(155px,1fr))", gap: 14 }}>
+                      {[
+                        { label: "Performance Grade", value: s2.performance_grade, color: s2.performance_grade === "A" ? "#059669" : s2.performance_grade === "B" ? "#0891b2" : s2.performance_grade === "C" ? "#f59e0b" : "#dc2626", bg: "#f8fafc", icon: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" },
+                        { label: "Avg Best Score", value: `${s2.avg_best_score}%`, color: "#4f46e5", bg: "#eef2ff", icon: "M18 20V10M12 20V4M6 20v-6" },
+                        { label: "Assessments Taken", value: s2.total_assessments, color: "#0891b2", bg: "#e0f2fe", icon: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" },
+                        { label: "Passed", value: s2.passed, color: "#059669", bg: "#d1fae5", icon: "M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+                        { label: "Total Attempts", value: s2.total_attempts, color: "#7c3aed", bg: "#f5f3ff", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15" },
+                        { label: "Improving", value: s2.improving_count, color: "#f59e0b", bg: "#fef3c7", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
+                      ].map(item => (
+                        <div key={item.label} style={{ background: "#fff", borderRadius: 12, padding: "16px", border: `1.5px solid ${item.color}22`, boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                          <div style={{ width: 34, height: 34, borderRadius: 8, background: item.bg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                            <Icon d={item.icon} size={17} color={item.color} />
+                          </div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginTop: 3 }}>{item.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Weak areas AI insight */}
+                    {(s2.weak_areas?.length ?? 0) > 0 && (
+                      <div style={{ background: "linear-gradient(135deg,#fef3c7,#fffbeb)", borderRadius: 14, padding: "18px 22px", border: "1.5px solid #fde68a" }}>
+                        <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                          <Icon d="M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={16} color="#d97706" />
+                          AI-Identified Weak Areas
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {s2.weak_areas.map(area => (
+                            <span key={area} style={{ padding: "4px 12px", borderRadius: 20, background: "#fef3c7", border: "1px solid #fde68a", fontSize: 12.5, fontWeight: 600, color: "#92400e" }}>{area}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Assessment breakdown */}
+                {empPerfLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading performance data…</div>
+                ) : (d?.assessments?.length ?? 0) > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {d.assessments.map(assess => (
+                      <div key={assess.id} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14.5, color: "#0f172a" }}>{assess.assessment_title}</div>
+                            <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 2 }}>{assess.course_title} · {assess.category} · {assess.attempts} attempt{assess.attempts !== 1 ? "s" : ""}</div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: assess.passed ? "#d1fae5" : "#fee2e2", color: assess.passed ? "#059669" : "#dc2626" }}>{assess.passed ? "Passed" : "Not Passed"}</span>
+                            <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: assess.trend === "improving" ? "#dbeafe" : assess.trend === "declining" ? "#fee2e2" : "#f3f4f6", color: assess.trend === "improving" ? "#2563eb" : assess.trend === "declining" ? "#dc2626" : "#6b7280" }}>
+                              {assess.trend === "improving" ? "↑ Improving" : assess.trend === "declining" ? "↓ Declining" : "→ Stable"}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Score bars */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 12 }}>
+                          {[
+                            { label: "Best Score", value: assess.best_score, color: "#059669" },
+                            { label: "Avg Score", value: assess.avg_score, color: "#4f46e5" },
+                            { label: "Latest Score", value: assess.latest_score, color: "#0891b2" },
+                          ].map(item => (
+                            <div key={item.label}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                                <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{item.label}</span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: item.color }}>{item.value}%</span>
+                              </div>
+                              <div style={{ height: 7, borderRadius: 4, background: "#f1f5f9", overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${item.value}%`, background: item.color, borderRadius: 4 }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Score history chips */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                          {assess.scores.map((score, idx) => (
+                            <span key={idx} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: score >= assess.pass_score ? "#d1fae5" : "#fee2e2", color: score >= assess.pass_score ? "#059669" : "#dc2626" }}>Attempt {idx + 1}: {score}%</span>
+                          ))}
+                        </div>
+                        {assess.ai_suggestion && (
+                          <div style={{ background: "#f0f9ff", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#0369a1", border: "1px solid #bae6fd" }}>
+                            <strong>AI Insight:</strong> {assess.ai_suggestion}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No assessment data found. Complete assessments to see your performance here.</div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              EMP-LEADERBOARD WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-leaderboard" && (() => {
+            const d = empLb;
+            const medalColors: Record<number, string> = { 1: "#f59e0b", 2: "#94a3b8", 3: "#b45309" };
+            const medalEmoji: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Standing & Leaderboard</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Real-time rankings across departments and teams</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {/* Department filter */}
+                    <select value={empLbDept} onChange={e => setEmpLbDept(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                      {(d?.departments || ["all"]).map(dept => <option key={dept} value={dept}>{dept === "all" ? "All Departments" : dept}</option>)}
+                    </select>
+                    {/* Timeframe filter */}
+                    <select value={empLbTimeframe} onChange={e => setEmpLbTimeframe(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                      {["weekly", "monthly", "quarterly", "all-time"].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Top 3 podium */}
+                {d?.leaderboard && d.leaderboard.length >= 3 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+                    {[d.leaderboard[1], d.leaderboard[0], d.leaderboard[2]].map((entry, podiumIdx) => {
+                      const rank = podiumIdx === 1 ? 1 : podiumIdx === 0 ? 2 : 3;
+                      const heights = [130, 160, 110];
+                      return (
+                        <div key={entry.id} style={{ background: "#fff", borderRadius: 16, padding: "20px 16px", border: `2px solid ${rank === 1 ? "#f59e0b" : rank === 2 ? "#94a3b8" : "#b45309"}22`, textAlign: "center", boxShadow: rank === 1 ? "0 4px 20px rgba(245,158,11,0.15)" : "0 1px 4px rgba(15,23,42,0.06)", position: "relative", marginTop: podiumIdx === 1 ? 0 : 20 }}>
+                          <div style={{ position: "absolute", top: -14, left: "50%", transform: "translateX(-50%)", fontSize: 26 }}>{medalEmoji[rank]}</div>
+                          <div style={{ width: 52, height: 52, borderRadius: "50%", background: `linear-gradient(135deg,${medalColors[rank]},${medalColors[rank]}88)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "16px auto 10px", fontSize: 20, fontWeight: 800, color: "#fff" }}>{entry.avatar}</div>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a" }}>{entry.user_name}</div>
+                          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{entry.department}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: medalColors[rank], marginTop: 8 }}>{entry.xp_points.toLocaleString()} XP</div>
+                          <div style={{ fontSize: 12, color: "#64748b" }}>Level {entry.level} · {entry.badges} badges</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Full table */}
+                {empLbLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading leaderboard…</div>
+                ) : d?.leaderboard.length ? (
+                  <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #e2e8f0", overflow: "hidden", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+                      <thead>
+                        <tr style={{ background: "#f8fafc" }}>
+                          {["Rank", "Employee", "Department", "XP Points", "Level", "Courses", "Avg Score", "Streak", "Trend"].map(h => (
+                            <th key={h} style={{ padding: "11px 14px", textAlign: "left", fontSize: 11.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #e2e8f0" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {d.leaderboard.map(entry => (
+                          <tr key={entry.id} style={{ borderBottom: "1px solid #f1f5f9", background: entry.rank <= 3 ? (entry.rank === 1 ? "#fffbeb" : entry.rank === 2 ? "#f8fafc" : "#fff7ed") : "#fff" }}>
+                            <td style={{ padding: "12px 14px", fontWeight: 800, color: entry.rank <= 3 ? medalColors[entry.rank] : "#374151" }}>
+                              {entry.rank <= 3 ? `${medalEmoji[entry.rank]} ${entry.rank}` : `#${entry.rank}`}
+                            </td>
+                            <td style={{ padding: "12px 14px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#4f46e5,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{entry.avatar}</div>
+                                <span style={{ fontWeight: 600, color: "#0f172a" }}>{entry.user_name}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: "12px 14px", color: "#374151" }}>{entry.department}</td>
+                            <td style={{ padding: "12px 14px", fontWeight: 700, color: "#4f46e5" }}>{entry.xp_points.toLocaleString()}</td>
+                            <td style={{ padding: "12px 14px", color: "#374151" }}>Lv. {entry.level}</td>
+                            <td style={{ padding: "12px 14px", color: "#374151" }}>{entry.courses_completed}</td>
+                            <td style={{ padding: "12px 14px", color: "#374151" }}>{entry.avg_score}%</td>
+                            <td style={{ padding: "12px 14px", color: "#374151" }}>{entry.streak_days}d 🔥</td>
+                            <td style={{ padding: "12px 14px" }}>
+                              <span style={{ fontWeight: 700, color: entry.trend === "up" ? "#059669" : entry.trend === "down" ? "#dc2626" : "#64748b" }}>
+                                {entry.trend === "up" ? "↑" : entry.trend === "down" ? "↓" : "→"} {Math.abs(entry.change || 0)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No leaderboard data available.</div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              EMP-SCHEDULE WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-schedule" && (() => {
+            const d = empSchedule;
+            const priorityColors: Record<string, string> = { high: "#dc2626", medium: "#f59e0b", low: "#059669" };
+            const typeColors: Record<string, string> = { learning: "#4f46e5", assessment: "#0891b2", operational: "#7c3aed" };
+            const typeIcons: Record<string, string> = {
+              learning: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z",
+              assessment: "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2",
+              operational: "M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+            };
+            const now = new Date();
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Tasks & Schedule</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Manage your learning tasks, assessments, and operational activities</div>
+                  </div>
+                  <button onClick={() => { const el = document.getElementById("new-task-form"); if (el) el.scrollIntoView({ behavior: "smooth" }); }} style={{ padding: "7px 14px", borderRadius: 8, background: "#4f46e5", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>+ Add Task</button>
+                </div>
+
+                {/* Summary */}
+                {d?.summary && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 12 }}>
+                    {[
+                      { label: "Total Tasks", value: d.summary.total, color: "#4f46e5" },
+                      { label: "Overdue", value: d.summary.overdue, color: "#dc2626" },
+                      { label: "Upcoming", value: d.summary.upcoming, color: "#f59e0b" },
+                      { label: "In Progress", value: d.summary.in_progress, color: "#0891b2" },
+                      { label: "Completed", value: d.summary.completed, color: "#059669" },
+                    ].map(item => (
+                      <div key={item.label} style={{ background: "#fff", borderRadius: 12, padding: "14px", border: `1.5px solid ${item.color}22`, textAlign: "center", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: item.color }}>{item.value}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginTop: 4 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Filters */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <select value={empScheduleFilter} onChange={e => setEmpScheduleFilter(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                    {["all", "pending", "in_progress", "completed", "not_started"].map(s => <option key={s} value={s}>{s === "all" ? "All Status" : s.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                  <select value={empScheduleType} onChange={e => setEmpScheduleType(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                    {["all", "learning", "assessment", "operational"].map(t => <option key={t} value={t}>{t === "all" ? "All Types" : t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                  </select>
+                </div>
+
+                {/* Task list */}
+                {empScheduleLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading tasks…</div>
+                ) : d?.tasks.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {d.tasks.map(task => {
+                      const isOverdue = task.due_date && new Date(task.due_date) < now && task.status !== "completed";
+                      return (
+                        <div key={task.id} style={{ background: "#fff", borderRadius: 14, padding: "16px 18px", border: `1.5px solid ${isOverdue ? "#fecaca" : "#e2e8f0"}`, boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+                              <div style={{ width: 36, height: 36, borderRadius: 8, background: (typeColors[task.type] || "#64748b") + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                <Icon d={typeIcons[task.type] || ""} size={16} color={typeColors[task.type] || "#64748b"} />
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 14.5, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</div>
+                                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                                  {task.course_title && <span>{task.course_title} · </span>}
+                                  Due: {task.due_date ? new Date(task.due_date).toLocaleDateString() : "—"}
+                                  {isOverdue && <span style={{ color: "#dc2626", fontWeight: 700 }}> · OVERDUE</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                              <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: (priorityColors[task.priority] || "#64748b") + "18", color: priorityColors[task.priority] || "#64748b" }}>{task.priority}</span>
+                              <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: task.status === "completed" ? "#d1fae5" : task.status === "in_progress" ? "#dbeafe" : "#f3f4f6", color: task.status === "completed" ? "#059669" : task.status === "in_progress" ? "#2563eb" : "#6b7280" }}>
+                                {task.status.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                            {task.status !== "completed" && (
+                              <>
+                                <button onClick={() => handleUpdateTaskStatus(task.id, task.status === "pending" || task.status === "not_started" ? "in_progress" : "completed")} style={{ padding: "5px 12px", borderRadius: 7, background: "#4f46e5", color: "#fff", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                                  {task.status === "pending" || task.status === "not_started" ? "Start" : "Mark Done"}
+                                </button>
+                                {task.status === "in_progress" && (
+                                  <button onClick={() => handleUpdateTaskStatus(task.id, "pending")} style={{ padding: "5px 12px", borderRadius: 7, background: "#f1f5f9", color: "#374151", border: "1px solid #e2e8f0", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Pause</button>
+                                )}
+                              </>
+                            )}
+                            <button onClick={() => handleDeleteTask(task.id)} style={{ padding: "5px 12px", borderRadius: 7, background: "#fee2e2", color: "#dc2626", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Remove</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No tasks found. Add a task below to get started.</div>
+                )}
+
+                {/* New task form */}
+                <div id="new-task-form" style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 16 }}>Add New Task</div>
+                  {empTaskMsg && <div style={{ padding: "10px 14px", borderRadius: 8, background: empTaskMsg.includes("success") ? "#f0fdf4" : "#fef2f2", border: `1px solid ${empTaskMsg.includes("success") ? "#bbf7d0" : "#fecaca"}`, color: empTaskMsg.includes("success") ? "#15803d" : "#dc2626", fontSize: 13, marginBottom: 14 }}>{empTaskMsg}</div>}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ gridColumn: "1/-1" }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Task Title *</label>
+                      <input value={empNewTaskTitle} onChange={e => setEmpNewTaskTitle(e.target.value)} placeholder="e.g. Complete Module 4: Advanced Techniques" style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", outline: "none", boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Type</label>
+                      <select value={empNewTaskType} onChange={e => setEmpNewTaskType(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa" }}>
+                        <option value="learning">Learning</option>
+                        <option value="assessment">Assessment</option>
+                        <option value="operational">Operational</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Priority</label>
+                      <select value={empNewTaskPriority} onChange={e => setEmpNewTaskPriority(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa" }}>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Due Date</label>
+                      <input type="date" value={empNewTaskDue} onChange={e => setEmpNewTaskDue(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Related Course (optional)</label>
+                      <input value={empNewTaskCourse} onChange={e => setEmpNewTaskCourse(e.target.value)} placeholder="Course name" style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                  <button onClick={handleCreateEmpTask} disabled={empTaskCreating} style={{ padding: "9px 22px", borderRadius: 9, background: empTaskCreating ? "#94a3b8" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "#fff", border: "none", cursor: empTaskCreating ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 14 }}>
+                    {empTaskCreating ? "Creating…" : "Create Task"}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              EMP-ROLE-ACCESS WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-role-access" && (() => {
+            const d = empRoleAccess;
+            const current = d?.current;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Role & Access Control</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Your assigned role, accessible content, and permission overview</div>
+                  </div>
+                  <button onClick={fetchEmpRoleAccess} style={{ padding: "7px 14px", borderRadius: 8, background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Refresh</button>
+                </div>
+
+                {/* Role selector */}
+                {d?.all_roles && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {d.all_roles.map(role => (
+                      <button key={role.role} onClick={() => setEmpSelectedRole(role.role)} style={{ padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${empSelectedRole === role.role ? role.color : "#e2e8f0"}`, background: empSelectedRole === role.role ? role.color + "18" : "#fff", color: empSelectedRole === role.role ? role.color : "#374151", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                        {role.role}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {empRoleAccessLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading role access data…</div>
+                ) : current ? (
+                  <>
+                    {/* Current role card */}
+                    <div style={{ background: "#fff", borderRadius: 16, padding: "24px", border: `2px solid ${current.color}33`, boxShadow: "0 2px 12px rgba(15,23,42,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+                        <div style={{ width: 56, height: 56, borderRadius: 14, background: current.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" size={26} color="#fff" />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{current.role}</div>
+                          <div style={{ fontSize: 13, color: "#64748b" }}>{current.department} Department</div>
+                        </div>
+                        <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                          <div style={{ fontSize: 28, fontWeight: 800, color: current.color }}>{Math.round((current.accessible_modules_count / current.total_modules_count) * 100)}%</div>
+                          <div style={{ fontSize: 12, color: "#64748b" }}>Content Accessible</div>
+                        </div>
+                      </div>
+
+                      {/* Module access bar */}
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Module Access</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: current.color }}>{current.accessible_modules_count} / {current.total_modules_count} modules</span>
+                        </div>
+                        <div style={{ height: 10, borderRadius: 5, background: "#f1f5f9", overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${(current.accessible_modules_count / current.total_modules_count) * 100}%`, background: current.color, borderRadius: 5 }} />
+                        </div>
+                      </div>
+
+                      {/* Permissions grid */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 8 }}>
+                        {Object.entries(current.permissions).map(([key, val]) => (
+                          <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: val ? "#f0fdf4" : "#fef2f2", border: `1px solid ${val ? "#bbf7d0" : "#fecaca"}` }}>
+                            <Icon d={val ? "M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" : "M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"} size={15} color={val ? "#059669" : "#dc2626"} />
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: val ? "#065f46" : "#991b1b" }}>{key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Accessible vs restricted courses */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                      <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #bbf7d0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ fontWeight: 700, color: "#059669", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                          <Icon d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={16} color="#059669" />
+                          Accessible Courses ({current.accessible_courses.length})
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {current.accessible_courses.map(course => (
+                            <div key={course} style={{ padding: "7px 12px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#065f46", fontWeight: 500 }}>✓ {course}</div>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #fecaca", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ fontWeight: 700, color: "#dc2626", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                          <Icon d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728L5.636 5.636" size={16} color="#dc2626" />
+                          Restricted Courses ({current.restricted_courses.length})
+                        </div>
+                        {current.restricted_courses.length > 0 ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {current.restricted_courses.map(course => (
+                              <div key={course} style={{ padding: "7px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#991b1b", fontWeight: 500 }}>✗ {course}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 13, color: "#64748b", fontStyle: "italic" }}>No restrictions — full content access</div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No role access data available.</div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════════
+              EMP-IDEAS WORKSPACE
+          ═══════════════════════════════════════════════════════ */}
+          {activeTab === "emp-ideas" && (() => {
+            const d = empIdeas;
+            const categoryColors: Record<string, string> = {
+              process_improvement: "#4f46e5", training: "#059669", tools: "#0891b2", other: "#7c3aed",
+            };
+            const statusColors: Record<string, { bg: string; color: string }> = {
+              submitted: { bg: "#dbeafe", color: "#2563eb" },
+              under_review: { bg: "#fef3c7", color: "#d97706" },
+              approved: { bg: "#d1fae5", color: "#059669" },
+              rejected: { bg: "#fee2e2", color: "#dc2626" },
+            };
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Idea Hub</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Share your ideas to improve learning, processes, and tools</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEmpShowIdeaForm(f => !f)} style={{ padding: "7px 14px", borderRadius: 8, background: empShowIdeaForm ? "#f1f5f9" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: empShowIdeaForm ? "#374151" : "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                      {empShowIdeaForm ? "Cancel" : "+ Submit Idea"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                {d && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,1fr))", gap: 12 }}>
+                    {[
+                      { label: "Total Ideas", value: d.total, color: "#4f46e5" },
+                      { label: "Total Upvotes", value: d.total_upvotes, color: "#f59e0b" },
+                      { label: "Approved", value: d.ideas.filter(i => i.status === "approved").length, color: "#059669" },
+                      { label: "Under Review", value: d.ideas.filter(i => i.status === "under_review").length, color: "#d97706" },
+                    ].map(item => (
+                      <div key={item.label} style={{ background: "#fff", borderRadius: 12, padding: "14px", border: `1.5px solid ${item.color}22`, textAlign: "center", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: item.color }}>{item.value}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginTop: 4 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Submit idea form */}
+                {empShowIdeaForm && (
+                  <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #c7d2fe", boxShadow: "0 4px 16px rgba(79,70,229,0.08)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 16 }}>Share Your Idea</div>
+                    {empIdeaMsg && <div style={{ padding: "10px 14px", borderRadius: 8, background: empIdeaMsg.includes("success") ? "#f0fdf4" : "#fef2f2", border: `1px solid ${empIdeaMsg.includes("success") ? "#bbf7d0" : "#fecaca"}`, color: empIdeaMsg.includes("success") ? "#15803d" : "#dc2626", fontSize: 13, marginBottom: 14 }}>{empIdeaMsg}</div>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Idea Title *</label>
+                        <input value={empNewIdeaTitle} onChange={e => setEmpNewIdeaTitle(e.target.value)} placeholder="A clear, concise title for your idea" style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", outline: "none", boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Description *</label>
+                        <textarea value={empNewIdeaDesc} onChange={e => setEmpNewIdeaDesc(e.target.value)} placeholder="Describe your idea in detail — the problem it solves and how it should work…" rows={4} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Category</label>
+                        <select value={empNewIdeaCat} onChange={e => setEmpNewIdeaCat(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa" }}>
+                          <option value="process_improvement">Process Improvement</option>
+                          <option value="training">Training & Learning</option>
+                          <option value="tools">Tools & Technology</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <button onClick={handleSubmitIdea} disabled={empIdeaSubmitting} style={{ padding: "10px 24px", borderRadius: 9, background: empIdeaSubmitting ? "#94a3b8" : "linear-gradient(135deg,#4f46e5,#7c3aed)", color: "#fff", border: "none", cursor: empIdeaSubmitting ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 14, alignSelf: "flex-start" }}>
+                        {empIdeaSubmitting ? "Submitting…" : "Submit Idea"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filters */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <select value={empIdeaCategory} onChange={e => setEmpIdeaCategory(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                    {(d?.categories || ["all"]).map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                  <select value={empIdeaSort} onChange={e => setEmpIdeaSort(e.target.value)} style={{ padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0", fontSize: 13, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}>
+                    <option value="newest">Newest First</option>
+                    <option value="popular">Most Popular</option>
+                  </select>
+                </div>
+
+                {/* Ideas list */}
+                {empIdeasLoading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading ideas…</div>
+                ) : d?.ideas.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {d.ideas.map(idea => (
+                      <div key={idea.id} style={{ background: "#fff", borderRadius: 14, padding: "20px 22px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                              <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: (categoryColors[idea.category] || "#64748b") + "18", color: categoryColors[idea.category] || "#64748b" }}>
+                                {idea.category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                              </span>
+                              <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, ...statusColors[idea.status] }}>
+                                {idea.status.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 6 }}>{idea.title}</div>
+                            <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.6, marginBottom: 10 }}>{idea.description}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: "linear-gradient(135deg,#4f46e5,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff" }}>{idea.user_name?.[0] || "?"}</div>
+                                <span style={{ fontSize: 12.5, color: "#64748b" }}>{idea.user_name}</span>
+                                {idea.department && <span style={{ fontSize: 12, color: "#94a3b8" }}>· {idea.department}</span>}
+                              </div>
+                              <span style={{ fontSize: 12, color: "#94a3b8" }}>{new Date(idea.created_at).toLocaleDateString()}</span>
+                              {idea.tags?.map(tag => (
+                                <span key={tag} style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, background: "#f1f5f9", color: "#475569", fontWeight: 600 }}>#{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Vote button */}
+                          <button onClick={() => handleVoteIdea(idea.id)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "12px 16px", borderRadius: 12, border: idea.upvoted_by?.includes(me?.id || "demo_user") ? "1.5px solid #4f46e5" : "1.5px solid #e2e8f0", background: idea.upvoted_by?.includes(me?.id || "demo_user") ? "#eef2ff" : "#f8fafc", cursor: "pointer", minWidth: 60 }}>
+                            <Icon d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" size={18} color={idea.upvoted_by?.includes(me?.id || "demo_user") ? "#4f46e5" : "#64748b"} />
+                            <span style={{ fontSize: 16, fontWeight: 800, color: idea.upvoted_by?.includes(me?.id || "demo_user") ? "#4f46e5" : "#374151" }}>{idea.upvotes}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>No ideas found. Be the first to submit an idea!</div>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* ═══════════════════════════════════════════════════════
+            EMP-LEAVES WORKSPACE
+        ═══════════════════════════════════════════════════════ */}
+        {activeTab === "emp-leaves" && (() => {
+          const leaveTypeColors: Record<string, { bg: string; color: string }> = {
+            "Casual Leave": { bg: "#dbeafe", color: "#1d4ed8" },
+            "Sick Leave":   { bg: "#fee2e2", color: "#dc2626" },
+            "Earned Leave": { bg: "#d1fae5", color: "#059669" },
+          };
+          const statusConfig: Record<string, { bg: string; color: string; label: string; dot: string }> = {
+            pending:  { bg: "#fef3c7", color: "#d97706", label: "Pending",  dot: "#f59e0b" },
+            approved: { bg: "#d1fae5", color: "#059669", label: "Approved", dot: "#10b981" },
+            rejected: { bg: "#fee2e2", color: "#dc2626", label: "Rejected", dot: "#dc2626" },
+          };
+
+          const panels = [
+            { id: "overview", label: "Overview",       icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
+            { id: "apply",    label: "Apply Leave",    icon: "M12 5v14m-7-7h14" },
+            { id: "balance",  label: "Balance",        icon: "M18 20V10M12 20V4M6 20v-6" },
+            { id: "history",  label: "History",        icon: "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+            { id: "calendar", label: "Calendar",       icon: "M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" },
+            { id: "policy",   label: "Policy",         icon: "M9 12l2 2 4-4m5 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+          ];
+
+          const bal = leaveBalance;
+          const pending = leaveRequests.filter(r => r.status === "pending");
+          const upcoming = leaveRequests.filter(r => r.status === "approved");
+
+          // Calendar helpers
+          const calYear = leaveCalView.year;
+          const calMonth = leaveCalView.month;
+          const firstDay = new Date(calYear, calMonth, 1).getDay();
+          const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+          const monthName = new Date(calYear, calMonth).toLocaleString("default", { month: "long" });
+          const calLeaveMap: Record<string, { type: string; status: string }> = {};
+          leaveCalendar.forEach(lr => {
+            const iso = lr.start_date_iso;
+            const isoEnd = lr.end_date_iso;
+            if (iso && isoEnd) {
+              const start = new Date(iso);
+              const end = new Date(isoEnd);
+              for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                const key = d.toISOString().slice(0, 10);
+                calLeaveMap[key] = { type: lr.type, status: lr.status };
+              }
+            }
+          });
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Leave Management</div>
+                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Apply for leave, track balances, and monitor approvals in real time</div>
+                </div>
+                <button onClick={fetchLeaveWorkspace} style={{ padding: "7px 14px", borderRadius: 8, background: "#0891b2", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                  {leaveLoading ? "Syncing…" : "↻ Sync"}
+                </button>
+              </div>
+
+              {/* Sub-navigation */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "4px 0" }}>
+                {panels.map(p => (
+                  <button key={p.id} onClick={() => setLeaveActivePanel(p.id as typeof leaveActivePanel)}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "1.5px solid", borderColor: leaveActivePanel === p.id ? "#0891b2" : "#e2e8f0", background: leaveActivePanel === p.id ? "#e0f2fe" : "#fff", color: leaveActivePanel === p.id ? "#0891b2" : "#374151", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    <Icon d={p.icon} size={14} color={leaveActivePanel === p.id ? "#0891b2" : "#64748b"} />
+                    {p.label}
+                    {p.id === "apply" && <span style={{ background: "linear-gradient(135deg,#0891b2,#0e7490)", color: "#fff", borderRadius: 20, padding: "1px 7px", fontSize: 10, fontWeight: 800 }}>NEW</span>}
+                    {p.id === "history" && pending.length > 0 && <span style={{ background: "#f59e0b", color: "#fff", borderRadius: 20, padding: "1px 7px", fontSize: 10, fontWeight: 800 }}>{pending.length}</span>}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── OVERVIEW PANEL ──────────────────────────────── */}
+              {leaveActivePanel === "overview" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  {/* 4 stat cards */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 14 }}>
+                    {[
+                      { label: "Total Balance", value: (bal ? (bal.casual_total + bal.sick_total + bal.earned_total) : 39), color: "#4f46e5", bg: "#eef2ff", icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
+                      { label: "Used This Year", value: (bal ? (bal.casual_used + bal.sick_used + bal.earned_used) : 0), color: "#dc2626", bg: "#fee2e2", icon: "M9 12l2 2 4-4M7 7h10M7 11h4M7 15h2" },
+                      { label: "Remaining Days", value: (bal ? Math.max(0, (bal.casual_total - bal.casual_used) + (bal.sick_total - bal.sick_used) + (bal.earned_total - bal.earned_used)) : 39), color: "#059669", bg: "#d1fae5", icon: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" },
+                      { label: "Pending Requests", value: pending.length, color: "#f59e0b", bg: "#fef3c7", icon: "M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" },
+                    ].map(item => (
+                      <div key={item.label} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: `1.5px solid ${item.color}22`, boxShadow: "0 1px 6px rgba(15,23,42,0.06)" }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 10, background: item.bg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+                          <Icon d={item.icon} size={18} color={item.color} />
+                        </div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: item.color }}>{item.value}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b", marginTop: 4 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Leave type progress bars */}
+                  {bal && (
+                    <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 16 }}>Leave Balance by Type</div>
+                      {[
+                        { type: "Casual Leave", used: bal.casual_used, total: bal.casual_total, color: "#0891b2", bg: "#e0f2fe" },
+                        { type: "Sick Leave",   used: bal.sick_used,   total: bal.sick_total,   color: "#dc2626", bg: "#fee2e2" },
+                        { type: "Earned Leave", used: bal.earned_used, total: bal.earned_total, color: "#059669", bg: "#d1fae5" },
+                      ].map(lt => {
+                        const pct = Math.min(100, lt.total > 0 ? (lt.used / lt.total) * 100 : 0);
+                        const remaining = Math.max(0, lt.total - lt.used);
+                        return (
+                          <div key={lt.type} style={{ marginBottom: 18 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: "50%", background: lt.color, display: "inline-block" }} />
+                                <span style={{ fontWeight: 700, fontSize: 13.5, color: "#0f172a" }}>{lt.type}</span>
+                              </div>
+                              <span style={{ fontSize: 12.5, color: "#64748b" }}><b style={{ color: lt.color }}>{remaining}</b> / {lt.total} days remaining</span>
+                            </div>
+                            <div style={{ height: 10, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${lt.color},${lt.color}cc)`, borderRadius: 99, transition: "width 0.5s ease" }} />
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5, fontSize: 11, color: "#94a3b8" }}>
+                              <span>{lt.used} used</span>
+                              <span>{Math.round(pct)}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Upcoming approved */}
+                  {upcoming.length > 0 && (
+                    <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #bbf7d0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 14 }}>Upcoming Approved Leaves</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {upcoming.slice(0, 3).map((lr, i) => (
+                          <div key={lr.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#059669", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", flexShrink: 0 }}>{lr.avatar || "?"}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 700, fontSize: 13.5, color: "#0f172a" }}>{lr.startDate}{lr.endDate !== lr.startDate ? ` – ${lr.endDate}` : ""}</div>
+                              <div style={{ fontSize: 12.5, color: "#64748b" }}>{lr.type} · {lr.days} day{lr.days !== 1 ? "s" : ""}</div>
+                            </div>
+                            <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: "#d1fae5", color: "#059669" }}>Approved</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pending requests */}
+                  {pending.length > 0 && (
+                    <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #fde68a", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 14 }}>Pending Requests</div>
+                      {pending.slice(0, 3).map((lr, i) => (
+                        <div key={lr.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 8 }}>
+                          <Icon d="M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={20} color="#f59e0b" />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, color: "#0f172a" }}>{lr.type}</div>
+                            <div style={{ fontSize: 12.5, color: "#64748b" }}>{lr.startDate} – {lr.endDate} · {lr.days} day{lr.days !== 1 ? "s" : ""}</div>
+                          </div>
+                          <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: "#fef3c7", color: "#d97706" }}>Awaiting</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!leaveLoading && leaveRequests.length === 0 && !bal && (
+                    <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading leave data… Click Sync if it takes too long.</div>
+                  )}
+                </div>
+              )}
+
+              {/* ── APPLY LEAVE PANEL ──────────────────────────── */}
+              {leaveActivePanel === "apply" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  {leaveMsg && (
+                    <div style={{ padding: "12px 16px", borderRadius: 10, background: leaveMsgType === "success" ? "#f0fdf4" : "#fef2f2", border: `1px solid ${leaveMsgType === "success" ? "#bbf7d0" : "#fecaca"}`, color: leaveMsgType === "success" ? "#15803d" : "#dc2626", fontSize: 13.5, fontWeight: 600 }}>
+                      {leaveMsg}
+                    </div>
+                  )}
+
+                  <div style={{ background: "#fff", borderRadius: 14, padding: "24px 26px", border: "1.5px solid #e0f2fe", boxShadow: "0 2px 12px rgba(8,145,178,0.08)" }}>
+                    <div style={{ fontWeight: 800, fontSize: 17, color: "#0f172a", marginBottom: 6 }}>Smart Leave Application</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginBottom: 22 }}>Fill in the details below. Conflicts and balance issues are detected in real time.</div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                      {/* Leave Type */}
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 8 }}>Leave Type *</label>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          {["Casual Leave", "Sick Leave", "Earned Leave"].map(lt => (
+                            <button key={lt} onClick={() => setLeaveFormType(lt)}
+                              style={{ padding: "8px 18px", borderRadius: 10, border: "1.5px solid", borderColor: leaveFormType === lt ? (leaveTypeColors[lt]?.color || "#0891b2") : "#e2e8f0", background: leaveFormType === lt ? (leaveTypeColors[lt]?.bg || "#e0f2fe") : "#f8fafc", color: leaveFormType === lt ? (leaveTypeColors[lt]?.color || "#0891b2") : "#374151", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                              {lt}
+                            </button>
+                          ))}
+                        </div>
+                        {bal && (
+                          <div style={{ marginTop: 8, fontSize: 12.5, color: "#059669" }}>
+                            Remaining {leaveFormType}: <b>{leaveFormType === "Casual Leave" ? Math.max(0, bal.casual_total - bal.casual_used) : leaveFormType === "Sick Leave" ? Math.max(0, bal.sick_total - bal.sick_used) : Math.max(0, bal.earned_total - bal.earned_used)}</b> days
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Start Date */}
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 8 }}>Start Date *</label>
+                        <input type="date" value={leaveFormStart}
+                          onChange={e => handleLeaveDateChange(e.target.value, leaveFormEnd)}
+                          min={new Date().toISOString().slice(0, 10)}
+                          style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, color: "#0f172a", background: "#fafafa", outline: "none", boxSizing: "border-box" }} />
+                      </div>
+
+                      {/* End Date */}
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 8 }}>End Date *</label>
+                        <input type="date" value={leaveFormEnd}
+                          onChange={e => handleLeaveDateChange(leaveFormStart, e.target.value)}
+                          min={leaveFormStart || new Date().toISOString().slice(0, 10)}
+                          style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, color: "#0f172a", background: "#fafafa", outline: "none", boxSizing: "border-box" }} />
+                      </div>
+
+                      {/* Auto-calculated duration */}
+                      {leaveFormDays > 0 && (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 9, background: "#e0f2fe", border: "1px solid #bae6fd" }}>
+                          <Icon d="M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" size={16} color="#0891b2" />
+                          <span style={{ fontSize: 13.5, color: "#0891b2", fontWeight: 700 }}>Duration: {leaveFormDays} working day{leaveFormDays !== 1 ? "s" : ""}</span>
+                        </div>
+                      )}
+
+                      {/* Conflict warning */}
+                      {leaveConflicts.length > 0 && (
+                        <div style={{ gridColumn: "1 / -1", padding: "12px 16px", borderRadius: 9, background: "#fef2f2", border: "1px solid #fecaca" }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#dc2626", marginBottom: 6 }}>Date Conflict Detected</div>
+                          {leaveConflicts.map((c, i) => (
+                            <div key={i} style={{ fontSize: 12.5, color: "#7f1d1d" }}>
+                              {c.type}: {c.startDate} – {c.endDate} ({c.status})
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Low balance warning */}
+                      {bal && leaveFormDays > 0 && (() => {
+                        const remaining = leaveFormType === "Casual Leave" ? bal.casual_total - bal.casual_used : leaveFormType === "Sick Leave" ? bal.sick_total - bal.sick_used : bal.earned_total - bal.earned_used;
+                        if (leaveFormDays > remaining) {
+                          return (
+                            <div style={{ gridColumn: "1 / -1", padding: "12px 16px", borderRadius: 9, background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "#c2410c" }}>Insufficient Balance</div>
+                              <div style={{ fontSize: 12.5, color: "#7c2d12" }}>You have {Math.max(0, remaining)} day{remaining !== 1 ? "s" : ""} remaining in {leaveFormType}. Requested: {leaveFormDays} days.</div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* Reason */}
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 8 }}>Reason *</label>
+                        <textarea value={leaveFormReason} onChange={e => setLeaveFormReason(e.target.value)}
+                          placeholder="Briefly explain the reason for your leave request…"
+                          rows={3}
+                          style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13.5, color: "#0f172a", fontFamily: "inherit", background: "#fafafa", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+                      </div>
+
+                      {/* Submit */}
+                      <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10 }}>
+                        <button onClick={handleApplyLeave} disabled={leaveApplying || leaveConflicts.length > 0}
+                          style={{ padding: "11px 28px", borderRadius: 10, background: leaveApplying || leaveConflicts.length > 0 ? "#94a3b8" : "linear-gradient(135deg,#0891b2,#0e7490)", color: "#fff", border: "none", cursor: leaveApplying || leaveConflicts.length > 0 ? "not-allowed" : "pointer", fontWeight: 800, fontSize: 14 }}>
+                          {leaveApplying ? "Submitting…" : "Submit Application"}
+                        </button>
+                        <button onClick={() => { setLeaveFormStart(""); setLeaveFormEnd(""); setLeaveFormReason(""); setLeaveFormDays(0); setLeaveConflicts([]); setLeaveMsg(null); }}
+                          style={{ padding: "11px 20px", borderRadius: 10, background: "#f1f5f9", color: "#374151", border: "1.5px solid #e2e8f0", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── BALANCE INTELLIGENCE PANEL ─────────────────── */}
+              {leaveActivePanel === "balance" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  {bal ? (
+                    <>
+                      {/* Circular indicators row */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16 }}>
+                        {[
+                          { type: "Casual Leave", used: bal.casual_used, total: bal.casual_total, color: "#0891b2", bg: "#e0f2fe", desc: "For personal/family needs" },
+                          { type: "Sick Leave",   used: bal.sick_used,   total: bal.sick_total,   color: "#dc2626", bg: "#fee2e2", desc: "Medical & health reasons" },
+                          { type: "Earned Leave", used: bal.earned_used, total: bal.earned_total, color: "#059669", bg: "#d1fae5", desc: "Planned vacations & trips" },
+                        ].map(lt => {
+                          const pct = lt.total > 0 ? (lt.used / lt.total) * 100 : 0;
+                          const remaining = Math.max(0, lt.total - lt.used);
+                          const r = 38; const circ = 2 * Math.PI * r;
+                          return (
+                            <div key={lt.type} style={{ background: "#fff", borderRadius: 16, padding: "24px 22px", border: `2px solid ${lt.color}20`, boxShadow: "0 2px 12px rgba(15,23,42,0.06)", textAlign: "center" }}>
+                              <svg width={100} height={100} style={{ margin: "0 auto 14px", display: "block" }}>
+                                <circle cx={50} cy={50} r={r} fill="none" stroke="#f1f5f9" strokeWidth={10} />
+                                <circle cx={50} cy={50} r={r} fill="none" stroke={lt.color} strokeWidth={10}
+                                  strokeDasharray={circ}
+                                  strokeDashoffset={circ - (circ * pct) / 100}
+                                  strokeLinecap="round"
+                                  transform="rotate(-90 50 50)" />
+                                <text x={50} y={47} textAnchor="middle" fontSize={18} fontWeight={800} fill={lt.color}>{remaining}</text>
+                                <text x={50} y={62} textAnchor="middle" fontSize={10} fill="#94a3b8">left</text>
+                              </svg>
+                              <div style={{ fontWeight: 800, fontSize: 14, color: "#0f172a" }}>{lt.type}</div>
+                              <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{lt.desc}</div>
+                              <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 12 }}>
+                                <div><div style={{ fontSize: 16, fontWeight: 800, color: lt.color }}>{lt.used}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Used</div></div>
+                                <div><div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{lt.total}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Total</div></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Monthly trend bars */}
+                      {leaveTrends && (
+                        <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #e2e8f0" }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 18 }}>Monthly Usage — {new Date().getFullYear()}</div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 80 }}>
+                            {leaveTrends.monthly.map(m => {
+                              const maxDays = Math.max(...leaveTrends.monthly.map(x => x.days), 1);
+                              const barH = m.days > 0 ? Math.max(8, (m.days / maxDays) * 72) : 4;
+                              return (
+                                <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: m.days > 0 ? "#0891b2" : "#94a3b8" }}>{m.days > 0 ? m.days : ""}</div>
+                                  <div title={`${m.month}: ${m.days} days`} style={{ width: "100%", maxWidth: 24, height: barH, borderRadius: 4, background: m.days > 0 ? "linear-gradient(180deg,#0891b2,#0e7490)" : "#f1f5f9", transition: "height 0.4s ease" }} />
+                                  <div style={{ fontSize: 10, color: "#94a3b8" }}>{m.month}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ marginTop: 16, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                            {leaveTrends.by_type.map(bt => (
+                              <div key={bt.type} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: "50%", background: bt.type === "Casual Leave" ? "#0891b2" : bt.type === "Sick Leave" ? "#dc2626" : "#059669", display: "inline-block" }} />
+                                <span style={{ fontSize: 12.5, color: "#374151" }}>{bt.type}: <b>{bt.days}d</b></span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading balance data…</div>
+                  )}
+                </div>
+              )}
+
+              {/* ── HISTORY TIMELINE PANEL ─────────────────────── */}
+              {leaveActivePanel === "history" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {/* Filter */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {["all", "pending", "approved", "rejected"].map(s => (
+                      <button key={s} onClick={() => setLeaveStatusFilter(s)}
+                        style={{ padding: "7px 16px", borderRadius: 20, border: "1.5px solid", borderColor: leaveStatusFilter === s ? (statusConfig[s]?.color || "#0891b2") : "#e2e8f0", background: leaveStatusFilter === s ? (statusConfig[s]?.bg || "#e0f2fe") : "#fff", color: leaveStatusFilter === s ? (statusConfig[s]?.color || "#0891b2") : "#374151", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                        {s !== "all" && leaveRequests.filter(r => r.status === s).length > 0 && ` (${leaveRequests.filter(r => r.status === s).length})`}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Timeline */}
+                  {leaveRequests.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {leaveRequests.filter(r => leaveStatusFilter === "all" || r.status === leaveStatusFilter).map((lr, i) => {
+                        const sc = statusConfig[lr.status] || { bg: "#f1f5f9", color: "#64748b", label: lr.status, dot: "#94a3b8" };
+                        const tc = leaveTypeColors[lr.type] || { bg: "#f1f5f9", color: "#64748b" };
+                        return (
+                          <div key={lr.id || i} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
+                              {/* Status dot */}
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 4 }}>
+                                <div style={{ width: 12, height: 12, borderRadius: "50%", background: sc.dot, flexShrink: 0 }} />
+                                {i < leaveRequests.filter(r => leaveStatusFilter === "all" || r.status === leaveStatusFilter).length - 1 && (
+                                  <div style={{ width: 2, height: 30, background: "#e2e8f0", marginTop: 6 }} />
+                                )}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                                  <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: tc.bg, color: tc.color }}>{lr.type}</span>
+                                  <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sc.bg, color: sc.color }}>{sc.label}</span>
+                                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Applied: {lr.appliedDate}</span>
+                                </div>
+                                <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>
+                                  {lr.startDate}{lr.endDate !== lr.startDate ? ` – ${lr.endDate}` : ""} · <span style={{ color: "#0891b2" }}>{lr.days} day{lr.days !== 1 ? "s" : ""}</span>
+                                </div>
+                                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5 }}>{lr.reason}</div>
+                                {lr.comment && (
+                                  <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, background: lr.status === "approved" ? "#f0fdf4" : lr.status === "rejected" ? "#fef2f2" : "#fffbeb", border: `1px solid ${sc.dot}33`, fontSize: 12.5, color: "#374151" }}>
+                                    <b>Manager:</b> {lr.comment}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: 48, color: "#64748b" }}>
+                      <Icon d="M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" size={40} color="#cbd5e1" />
+                      <div style={{ marginTop: 12, fontSize: 14, fontWeight: 600 }}>No leave history found</div>
+                      <div style={{ fontSize: 12.5, marginTop: 4 }}>Apply for leave to see your history here</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── VISUAL CALENDAR PANEL ──────────────────────── */}
+              {leaveActivePanel === "calendar" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ background: "#fff", borderRadius: 14, padding: "22px 24px", border: "1.5px solid #e2e8f0" }}>
+                    {/* Month navigation */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                      <button onClick={() => setLeaveCalView(v => { const d = new Date(v.year, v.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+                        style={{ padding: "6px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontWeight: 700 }}>‹</button>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{monthName} {calYear}</div>
+                      <button onClick={() => setLeaveCalView(v => { const d = new Date(v.year, v.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+                        style={{ padding: "6px 14px", borderRadius: 8, border: "1.5px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontWeight: 700 }}>›</button>
+                    </div>
+
+                    {/* Day headers */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 8 }}>
+                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+                        <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#94a3b8", padding: "4px 0" }}>{d}</div>
+                      ))}
+                    </div>
+
+                    {/* Calendar grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                      {Array.from({ length: firstDay }).map((_, i) => <div key={`empty-${i}`} />)}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateKey = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                        const leaveInfo = calLeaveMap[dateKey];
+                        const isToday = new Date().toISOString().slice(0, 10) === dateKey;
+                        const lc = leaveInfo ? leaveTypeColors[leaveInfo.type] || { bg: "#e0f2fe", color: "#0891b2" } : null;
+                        return (
+                          <div key={day} title={leaveInfo ? `${leaveInfo.type} (${leaveInfo.status})` : undefined}
+                            style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, fontSize: 13, fontWeight: leaveInfo || isToday ? 800 : 500, color: leaveInfo ? lc!.color : isToday ? "#4f46e5" : "#374151", background: leaveInfo ? lc!.bg : isToday ? "#eef2ff" : "transparent", border: isToday ? "1.5px solid #6366f1" : leaveInfo ? `1px solid ${lc!.color}33` : "1px solid transparent", cursor: leaveInfo ? "pointer" : "default" }}>
+                            {day}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Legend */}
+                    <div style={{ display: "flex", gap: 14, marginTop: 20, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Casual Leave", ...leaveTypeColors["Casual Leave"] },
+                        { label: "Sick Leave",   ...leaveTypeColors["Sick Leave"] },
+                        { label: "Earned Leave", ...leaveTypeColors["Earned Leave"] },
+                        { label: "Today",        bg: "#eef2ff", color: "#4f46e5" },
+                      ].map(l => (
+                        <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 14, height: 14, borderRadius: 4, background: l.bg, border: `1.5px solid ${l.color}`, display: "inline-block" }} />
+                          <span style={{ fontSize: 12, color: "#374151" }}>{l.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Upcoming on this calendar */}
+                  {leaveCalendar.length > 0 && (
+                    <div style={{ background: "#fff", borderRadius: 14, padding: "18px 22px", border: "1.5px solid #e2e8f0" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 12 }}>Leaves on Calendar</div>
+                      {leaveCalendar.map((lr, i) => {
+                        const tc = leaveTypeColors[lr.type] || { bg: "#f1f5f9", color: "#64748b" };
+                        const sc = statusConfig[lr.status] || { bg: "#f1f5f9", color: "#64748b", label: lr.status, dot: "#94a3b8" };
+                        return (
+                          <div key={lr.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 9, background: "#fafafa", border: "1px solid #f1f5f9", marginBottom: 8 }}>
+                            <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: tc.bg, color: tc.color }}>{lr.type}</span>
+                            <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{lr.startDate} – {lr.endDate} · {lr.days}d</span>
+                            <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: sc.bg, color: sc.color }}>{sc.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── POLICY PANEL ───────────────────────────────── */}
+              {leaveActivePanel === "policy" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ fontSize: 13.5, color: "#475569", lineHeight: 1.7 }}>
+                    Your leave entitlements and approval workflow, explained in plain language.
+                  </div>
+                  {leavePolicies.length > 0 ? leavePolicies.map((pol, i) => {
+                    const color = pol.color || "#0891b2";
+                    return (
+                      <div key={i} style={{ background: "#fff", borderRadius: 16, padding: "24px 26px", border: `2px solid ${color}20`, boxShadow: "0 2px 10px rgba(15,23,42,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${color}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Icon d="M9 12l2 2 4-4m5 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" size={20} color={color} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{pol.leave_type}</div>
+                            <div style={{ fontSize: 12.5, color: "#64748b" }}>{pol.eligibility}</div>
+                          </div>
+                          <div style={{ marginLeft: "auto", textAlign: "center" }}>
+                            <div style={{ fontSize: 26, fontWeight: 900, color }}>{pol.total_days}</div>
+                            <div style={{ fontSize: 11, color: "#94a3b8" }}>days/year</div>
+                          </div>
+                        </div>
+
+                        <p style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.7, margin: "0 0 16px" }}>{pol.description}</p>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                          {[
+                            { label: "Notice Required", value: pol.notice_required_days === 0 ? "None" : `${pol.notice_required_days} day${pol.notice_required_days !== 1 ? "s" : ""}` },
+                            { label: "Consecutive Days", value: pol.can_take_consecutive ? "Allowed" : "Not Allowed" },
+                            { label: "Carry Forward", value: pol.carry_forward ? `Yes, up to ${pol.max_carry_forward} days` : "No" },
+                            { label: "Total per Year", value: `${pol.total_days} days` },
+                          ].map(item => (
+                            <div key={item.label} style={{ padding: "10px 14px", borderRadius: 9, background: "#f8fafc", border: "1px solid #f1f5f9" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>{item.label}</div>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a", marginTop: 3 }}>{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {pol.approval_flow && pol.approval_flow.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Approval Workflow</div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                              {pol.approval_flow.map((step, si) => (
+                                <React.Fragment key={si}>
+                                  <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: `${color}12`, color, border: `1px solid ${color}30` }}>{step}</span>
+                                  {si < pol.approval_flow!.length - 1 && <span style={{ color: "#94a3b8", fontWeight: 700 }}>→</span>}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }) : (
+                    <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading policies…</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         </div>
       </div>
 

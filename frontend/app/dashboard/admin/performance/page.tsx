@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   perfOverviewApi, perfLearnerPerformanceApi, perfInstructorPerformanceApi,
   perfCoursePerformanceApi, perfAssessmentPerformanceApi, perfEngagementApi,
   perfRevenueApi, perfDepartmentReportsApi, perfBenchmarksApi, perfAlertsApi,
-  perfResolveAlertApi, perfAiInsightsApi, perfSeedApi,
+  perfResolveAlertApi, perfAiInsightsApi,
   PerfOverview, PerfLearnerPerformance, PerfInstructorPerformance,
   PerfCoursePerformance, PerfAssessmentPerformance, PerfEngagement,
   PerfRevenue, PerfAlert, PerfBenchmark,
@@ -348,13 +349,12 @@ function TreeItem({ node, depth, activePanel, onSelect, T }: {
 
 // ─── Main Page Component ───────────────────────────────────────────────────────
 export default function PerformanceWorkspacePage() {
+  const router = useRouter();
   const [isDark, setIsDark] = useState(false);
   const T = mkT(isDark);
   const [activePanel, setActivePanel] = useState("overview");
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
-  const [seeding, setSeeding] = useState(false);
-  const [seedMsg, setSeedMsg] = useState("");
 
   // Data states
   const [overview, setOverview] = useState<PerfOverview | null>(null);
@@ -375,8 +375,8 @@ export default function PerformanceWorkspacePage() {
 
   const loadOverview = useCallback(async () => {
     setLoad("overview", true);
-    try { setOverview(await perfOverviewApi()); } catch { /* silent */ } finally { setLoad("overview", false); }
-  }, []);
+    try { setOverview(await perfOverviewApi({ department: deptFilter || undefined })); } catch { /* silent */ } finally { setLoad("overview", false); }
+  }, [deptFilter]);
 
   const loadLearner = useCallback(async () => {
     setLoad("learner", true);
@@ -428,7 +428,10 @@ export default function PerformanceWorkspacePage() {
     try { setAiInsights(await perfAiInsightsApi()); } catch { /* silent */ } finally { setLoad("ai", false); }
   }, []);
 
-  useEffect(() => { loadOverview(); loadAlerts(); }, [loadOverview, loadAlerts]);
+  useEffect(() => { loadOverview(); }, [loadOverview]);
+  useEffect(() => { loadAlerts(); }, [loadAlerts]);
+
+  // Lazy-load panel data on first visit
   useEffect(() => {
     const panel = SECTION_PANELS[activePanel] ?? activePanel;
     if (panel === "learner" && !learner) loadLearner();
@@ -440,12 +443,15 @@ export default function PerformanceWorkspacePage() {
     if (panel === "departments" && departments.length === 0) loadDepartments();
     if (panel === "benchmarks" && benchmarks.length === 0) loadBenchmarks();
     if (panel === "ai" && !aiInsights) loadAi();
-  }, [activePanel]);
+  }, [activePanel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSeed = async () => {
-    setSeeding(true); setSeedMsg("");
-    try { await perfSeedApi(); setSeedMsg("Data seeded successfully!"); loadOverview(); loadAlerts(); } catch { setSeedMsg("Seed failed."); } finally { setSeeding(false); }
-  };
+  // Re-fetch when department filter or search changes
+  useEffect(() => {
+    const panel = SECTION_PANELS[activePanel] ?? activePanel;
+    if (panel === "overview") loadOverview();
+    if (panel === "learner") loadLearner();
+    if (panel === "departments") loadDepartments();
+  }, [deptFilter, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resolveAlert = async (id: string) => {
     try { await perfResolveAlertApi(id); loadAlerts(); } catch { /* silent */ }
@@ -1584,18 +1590,6 @@ export default function PerformanceWorkspacePage() {
           <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Admin Workspace</div>
         </div>
 
-        {/* Seed button */}
-        <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}` }}>
-          <button
-            onClick={handleSeed}
-            disabled={seeding}
-            style={{ width: "100%", background: seeding ? T.pill : "#6366f1", color: seeding ? T.muted : "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: seeding ? "default" : "pointer", fontWeight: 600, fontSize: 12 }}
-          >
-            {seeding ? "Seeding…" : "⚡ Seed Demo Data"}
-          </button>
-          {seedMsg && <div style={{ fontSize: 11, color: "#10b981", marginTop: 4, textAlign: "center" }}>{seedMsg}</div>}
-        </div>
-
         {/* Tree */}
         <div style={{ padding: "8px 0", flex: 1 }}>
           {TREE.map(node => (
@@ -1611,6 +1605,17 @@ export default function PerformanceWorkspacePage() {
           padding: "14px 28px", background: T.card, borderBottom: `1px solid ${T.border}`,
           display: "flex", alignItems: "center", gap: 16, flexShrink: 0,
         }}>
+          {/* Back button */}
+          <button
+            onClick={() => router.back()}
+            style={{ display: "flex", alignItems: "center", gap: 6, background: T.hover, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: T.text, fontSize: 13, fontWeight: 600, flexShrink: 0 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 5l-7 7 7 7" />
+            </svg>
+            Back
+          </button>
+
           <div style={{ flex: 1 }}>
             <input
               value={search}

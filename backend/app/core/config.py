@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # MongoDB Atlas
     MONGODB_URL: str = "mongodb://localhost:27017"
 
+    # SMTP / email
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # Phase 2 async processing
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"

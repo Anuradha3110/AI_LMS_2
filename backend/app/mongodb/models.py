@@ -119,3 +119,14 @@ class MongoRegisterResponse(BaseModel):
     admin_email: str
     api_key: str
     message: str
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str

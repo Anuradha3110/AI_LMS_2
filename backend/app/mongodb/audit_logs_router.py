@@ -27,6 +27,9 @@ def _logs_col():
 def _alerts_col():
     return webx_db()["admin_security_alerts"]
 
+def _users_col():
+    return webx_db()["users"]
+
 # ── Seed data templates ─────────────────────────────────────────────
 
 _USERS = [
@@ -177,10 +180,29 @@ _DEFAULT_ALERTS = [
     },
 ]
 
+# ── Real-user helper ────────────────────────────────────────────────
+
+async def _fetch_real_users() -> List[dict]:
+    """Return users from MongoDB users collection, shaped for log generation.
+    Falls back to _USERS if the collection is empty."""
+    raw = await _users_col().find({"is_active": True}).to_list(500)
+    if not raw:
+        return _USERS
+    return [
+        {
+            "id":     str(u["_id"]),
+            "email":  u.get("email", ""),
+            "name":   u.get("full_name", "User"),
+            "role":   u.get("role", "employee"),
+            "avatar": "".join(w[0].upper() for w in u.get("full_name", "U").split()[:2]),
+        }
+        for u in raw
+    ]
+
 # ── Log entry generator ─────────────────────────────────────────────
 
-def _gen_entry(offset_minutes: int = 0) -> dict:
-    user   = random.choice(_USERS)
+def _gen_entry(offset_minutes: int = 0, users_list: Optional[List[dict]] = None) -> dict:
+    user   = random.choice(users_list if users_list else _USERS)
     act    = random.choice(_ACTIONS)
     entity = random.choice(_ENTITIES) if random.random() > 0.3 else None
 
@@ -219,11 +241,13 @@ def _gen_entry(offset_minutes: int = 0) -> dict:
 _sync_task: Optional[asyncio.Task] = None
 
 async def _auto_sync_loop():
-    """Inserts a realistic log entry every 15 seconds to power the live feed."""
+    """Inserts a realistic log entry every 15 seconds to power the live feed.
+    Uses real users from the users collection so names/roles are accurate."""
     while True:
         try:
             await asyncio.sleep(15)
-            await _logs_col().insert_one(_gen_entry(0))
+            users_for_gen = await _fetch_real_users()
+            await _logs_col().insert_one(_gen_entry(0, users_for_gen))
         except asyncio.CancelledError:
             break
         except Exception:
@@ -244,7 +268,8 @@ async def _ensure_seeded():
     alerts = _alerts_col()
 
     if await col.count_documents({}) == 0:
-        entries = [_gen_entry(random.randint(0, 7 * 24 * 60)) for _ in range(_SEED_COUNT)]
+        users_for_gen = await _fetch_real_users()
+        entries = [_gen_entry(random.randint(0, 7 * 24 * 60), users_for_gen) for _ in range(_SEED_COUNT)]
         entries.sort(key=lambda x: x["timestamp"], reverse=True)
         await col.insert_many(entries)
         await col.create_index([("timestamp", -1)])
@@ -293,7 +318,8 @@ async def seed_audit_logs():
     alert_count = await alerts.count_documents({})
 
     if log_count == 0:
-        entries = [_gen_entry(random.randint(0, 7 * 24 * 60)) for _ in range(_SEED_COUNT)]
+        users_for_gen = await _fetch_real_users()
+        entries = [_gen_entry(random.randint(0, 7 * 24 * 60), users_for_gen) for _ in range(_SEED_COUNT)]
         entries.sort(key=lambda x: x["timestamp"], reverse=True)
         await col.insert_many(entries)
 
@@ -502,7 +528,8 @@ async def export_csv(
 @router.post("/generate")
 async def generate_live_log():
     """Insert one synthetic log entry right now (for testing the live feed)."""
-    entry = _gen_entry(0)
+    users_for_gen = await _fetch_real_users()
+    entry = _gen_entry(0, users_for_gen)
     await _logs_col().insert_one(entry)
     return {"success": True, "entry": _ser_log(entry)}
 

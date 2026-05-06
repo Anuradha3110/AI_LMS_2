@@ -296,6 +296,7 @@ export type MeResponse = {
   role: string;
   tenant_id: string;
   is_active: boolean;
+  department?: string | null;
 };
 
 export async function meApi(accessToken: string): Promise<MeResponse> {
@@ -1101,11 +1102,25 @@ export interface RegisterTenantPayload {
   plan?: string; business_domain?: string; industry?: string;
 }
 export interface RegisterTenantResult {
-  tenant_id: string; admin_user_id: string; api_key: string; message: string;
+  tenant_id: string; slug: string; admin_email: string; api_key: string; message: string;
 }
 export async function registerTenantApi(payload: RegisterTenantPayload): Promise<RegisterTenantResult> {
-  return request<RegisterTenantResult>("/api/register", {
+  return request<RegisterTenantResult>("/api/mongo/register", {
     method: "POST", body: JSON.stringify(payload),
+  });
+}
+
+// ─── Password Reset ───────────────────────────────────────────────────────────
+
+export async function forgotPasswordApi(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/mongo/forgot-password", {
+    method: "POST", body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPasswordApi(token: string, new_password: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/mongo/reset-password", {
+    method: "POST", body: JSON.stringify({ token, new_password }),
   });
 }
 
@@ -1387,12 +1402,24 @@ export async function createLeaveTypeApi(accessToken: string, payload: { name: s
 
 // ── MongoDB Admin Courses ─────────────────────────────────────────────────────
 
+export type CourseLessonDoc = {
+  id: string;
+  title: string;
+  description?: string;
+  content?: string;
+  duration?: string;
+  order?: number;
+  course_id?: string;
+  course_title?: string;
+  module_title?: string;
+};
+
 export type CourseModuleDoc = {
   title: string;
   description?: string;
   duration?: string;
   order?: number;
-  lessons?: string[];
+  lessons?: (CourseLessonDoc | string)[];
 };
 
 export type CourseAssignmentDoc = {
@@ -1475,6 +1502,22 @@ export async function mongoDeleteCourseApi(id: string): Promise<void> {
 
 export async function mongoSeedCoursesApi(force = false): Promise<{ message: string; inserted_count: number; seeded: boolean }> {
   return request(`/api/mongo/courses/seed?force=${force}`, { method: "POST" });
+}
+
+export async function mongoListCoursesWithLessonsApi(params?: { category?: string; status?: string }): Promise<MongoCourseDoc[]> {
+  const qs = new URLSearchParams();
+  if (params?.category) qs.set("category", params.category);
+  if (params?.status) qs.set("status", params.status);
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<MongoCourseDoc[]>(`/api/mongo/courses/with-lessons${query}`, { method: "GET" });
+}
+
+export async function mongoGetLessonApi(courseId: string, lessonId: string): Promise<CourseLessonDoc> {
+  return request<CourseLessonDoc>(`/api/mongo/courses/${courseId}/lessons/${lessonId}`, { method: "GET" });
+}
+
+export async function mongoInjectLessonsApi(): Promise<{ message: string; courses_updated: number }> {
+  return request("/api/mongo/courses/inject-lessons", { method: "POST" });
 }
 
 // ── User Profiles ──────────────────────────────────────────────────────────────
@@ -2394,8 +2437,11 @@ export async function perfSeedApi(): Promise<{ success: boolean; seeded: Record<
   return request("/api/mongo/perf-workspace/seed", { method: "POST" });
 }
 
-export async function perfOverviewApi(): Promise<PerfOverview> {
-  return request("/api/mongo/perf-workspace/overview", { method: "GET" });
+export async function perfOverviewApi(params?: { department?: string }): Promise<PerfOverview> {
+  const qs = new URLSearchParams();
+  if (params?.department) qs.set("department", params.department);
+  const q = qs.toString();
+  return request(`/api/mongo/perf-workspace/overview${q ? `?${q}` : ""}`, { method: "GET" });
 }
 
 export async function perfLearnerPerformanceApi(params?: {
@@ -2613,5 +2659,517 @@ export async function adaptiveRollbackApi(ruleId: string, version: number): Prom
 
 export async function adaptiveTestRuleApi(body: { prompt: string; role: string; rule_id?: string }): Promise<{ simulated_response: string; applied_config: Record<string, unknown>; rule_applied: string }> {
   return request("/api/mongo/adaptive-rules/test-rule", { method: "POST", body: JSON.stringify(body) });
+}
+
+// ─── Notifications Workspace (MongoDB) ────────────────────────────────────────
+
+export type MongoNotification = {
+  _id: string;
+  employee_id: string;
+  category: "learning" | "hr" | "team" | "ai" | "system";
+  title: string;
+  description: string;
+  priority: "high" | "medium" | "low";
+  is_read: boolean;
+  is_archived: boolean;
+  action_type: "start_course" | "view_feedback" | "view_calendar" | "approve_request" | "read_more" | null;
+  action_label: string | null;
+  due_date: string | null;
+  sender_name: string | null;
+  sender_avatar: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MongoNotifCounts = {
+  total: number;
+  unread: number;
+  urgent: number;
+  category_counts: Record<string, number>;
+};
+
+export type MongoNotifListResult = MongoNotifCounts & {
+  notifications: MongoNotification[];
+};
+
+export type MongoNotifSummary = {
+  urgent_tasks: { title: string; due: string; priority: string }[];
+  deadlines_approaching: { title: string; deadline: string; course: string }[];
+  suggested_course: { title: string; reason: string; category: string; duration: string };
+  productivity_tip: string;
+  skill_opportunities: string[];
+  low_engagement_reminder: string;
+  promotion_ready: string;
+  updated_at: string;
+};
+
+export async function getMongoNotificationsApi(params?: {
+  skip?: number;
+  limit?: number;
+}): Promise<MongoNotifListResult> {
+  const qs = new URLSearchParams();
+  if (params?.skip != null) qs.set("skip", String(params.skip));
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  return request(`/api/mongo/notifications/list?${qs}`, { method: "GET" });
+}
+
+export async function markMongoNotifReadApi(id: string): Promise<{ success: boolean }> {
+  return request(`/api/mongo/notifications/${id}/read`, { method: "PATCH" });
+}
+
+export async function markAllMongoNotifReadApi(): Promise<{ success: boolean }> {
+  return request("/api/mongo/notifications/mark-all-read", { method: "POST" });
+}
+
+export async function archiveMongoNotifApi(id: string): Promise<{ success: boolean }> {
+  return request(`/api/mongo/notifications/${id}/archive`, { method: "PATCH" });
+}
+
+export async function getMongoNotifSummaryApi(): Promise<MongoNotifSummary> {
+  return request("/api/mongo/notifications/ai-summary", { method: "GET" });
+}
+
+export async function syncMongoNotificationsApi(): Promise<{ success: boolean; total: number; unread: number }> {
+  return request("/api/mongo/notifications/sync", { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Employee Workspace APIs
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Progress ─────────────────────────────────────────────────────
+
+export type EmpProgressCourse = {
+  id: string;
+  user_id: string;
+  course_id: string;
+  course_title: string;
+  course_category: string;
+  total_modules: number;
+  completed_modules: number;
+  total_lessons: number;
+  completed_lessons: number;
+  progress_pct: number;
+  last_activity: string;
+  status: "not_started" | "in_progress" | "completed";
+  resume_module_idx: number | null;
+  resume_module_id: string | null;
+  resume_lesson_id: string | null;
+  thumbnail: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmpProgressSummary = {
+  total_courses: number;
+  completed: number;
+  in_progress: number;
+  not_started: number;
+  overall_progress_pct: number;
+};
+
+export type EmpProgressResult = {
+  user_id: string;
+  summary: EmpProgressSummary;
+  courses: EmpProgressCourse[];
+  synced_at: string;
+};
+
+export async function getEmpProgressApi(userId = "demo_user"): Promise<EmpProgressResult> {
+  return request(`/api/mongo/emp-workspace/progress?user_id=${encodeURIComponent(userId)}`, { method: "GET" });
+}
+
+export async function syncEmpProgressApi(userId = "demo_user"): Promise<{ message: string; synced_at: string }> {
+  return request(`/api/mongo/emp-workspace/progress/sync?user_id=${encodeURIComponent(userId)}`, { method: "POST" });
+}
+
+export async function trackLessonProgressApi(params: {
+  userId: string;
+  courseTitle: string;
+  moduleIdx: number;
+  lessonId?: string;
+}): Promise<{ ok: boolean }> {
+  const qs = new URLSearchParams({
+    user_id: params.userId,
+    course_title: params.courseTitle,
+    module_idx: String(params.moduleIdx),
+  });
+  if (params.lessonId) qs.set("lesson_id", params.lessonId);
+  return request(`/api/mongo/emp-workspace/progress/track-lesson?${qs}`, { method: "POST" });
+}
+
+// ── Performance ──────────────────────────────────────────────────
+
+export type EmpPerformanceAssessment = {
+  id: string;
+  user_id: string;
+  assessment_id: string;
+  assessment_title: string;
+  course_id: string;
+  course_title: string;
+  category: string;
+  scores: number[];
+  best_score: number;
+  avg_score: number;
+  latest_score: number;
+  attempts: number;
+  pass_score: number;
+  passed: boolean;
+  weak_areas: string[];
+  ai_suggestion: string;
+  trend: "improving" | "declining" | "stable";
+  last_attempt_at: string;
+};
+
+export type EmpPerformanceSummary = {
+  total_assessments: number;
+  passed: number;
+  avg_best_score: number;
+  avg_score: number;
+  total_attempts: number;
+  improving_count: number;
+  weak_areas: string[];
+  performance_grade: string;
+};
+
+export type EmpPerformanceResult = {
+  user_id: string;
+  summary: EmpPerformanceSummary;
+  assessments: EmpPerformanceAssessment[];
+  synced_at: string;
+};
+
+export async function getEmpPerformanceApi(userId = "demo_user"): Promise<EmpPerformanceResult> {
+  return request(`/api/mongo/emp-workspace/performance?user_id=${encodeURIComponent(userId)}`, { method: "GET" });
+}
+
+// ── Leaderboard ──────────────────────────────────────────────────
+
+export type EmpLeaderboardEntry = {
+  id: string;
+  rank: number;
+  user_name: string;
+  department: string;
+  xp_points: number;
+  level: number;
+  badges: number;
+  courses_completed: number;
+  avg_score: number;
+  streak_days: number;
+  avatar: string;
+  trend: "up" | "down" | "stable";
+  change: number;
+};
+
+export type EmpLeaderboardResult = {
+  leaderboard: EmpLeaderboardEntry[];
+  total: number;
+  departments: string[];
+  timeframe: string;
+  synced_at: string;
+};
+
+export async function getEmpLeaderboardApi(params?: {
+  department?: string;
+  timeframe?: string;
+  limit?: number;
+}): Promise<EmpLeaderboardResult> {
+  const qs = new URLSearchParams();
+  if (params?.department) qs.set("department", params.department);
+  if (params?.timeframe) qs.set("timeframe", params.timeframe);
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  return request(`/api/mongo/emp-workspace/leaderboard?${qs}`, { method: "GET" });
+}
+
+export async function getEmpRankApi(userName: string): Promise<EmpLeaderboardEntry & { total_participants: number; percentile: number; found: boolean }> {
+  return request(`/api/mongo/emp-workspace/leaderboard/rank?user_name=${encodeURIComponent(userName)}`, { method: "GET" });
+}
+
+// ── Schedule ─────────────────────────────────────────────────────
+
+export type EmpTask = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  type: "learning" | "assessment" | "operational";
+  priority: "low" | "medium" | "high";
+  status: "pending" | "in_progress" | "completed" | "not_started";
+  course_title: string | null;
+  course_id: string | null;
+  due_date: string;
+  reminder_sent: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmpScheduleResult = {
+  user_id: string;
+  tasks: EmpTask[];
+  summary: {
+    total: number;
+    overdue: number;
+    upcoming: number;
+    completed: number;
+    in_progress: number;
+  };
+  synced_at: string;
+};
+
+export async function getEmpScheduleApi(params?: {
+  user_id?: string;
+  status?: string;
+  type?: string;
+}): Promise<EmpScheduleResult> {
+  const qs = new URLSearchParams();
+  if (params?.user_id) qs.set("user_id", params.user_id);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.type) qs.set("type", params.type);
+  return request(`/api/mongo/emp-workspace/schedule?${qs}`, { method: "GET" });
+}
+
+export async function createEmpTaskApi(body: {
+  user_id?: string;
+  title: string;
+  description?: string;
+  type?: string;
+  priority?: string;
+  due_date?: string;
+  course_title?: string;
+}): Promise<EmpTask> {
+  return request("/api/mongo/emp-workspace/schedule", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateEmpTaskApi(taskId: string, body: {
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  due_date?: string;
+}): Promise<EmpTask> {
+  return request(`/api/mongo/emp-workspace/schedule/${taskId}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export async function deleteEmpTaskApi(taskId: string): Promise<{ deleted: boolean; id: string }> {
+  return request(`/api/mongo/emp-workspace/schedule/${taskId}`, { method: "DELETE" });
+}
+
+// ── Role Access ──────────────────────────────────────────────────
+
+export type EmpRoleAccess = {
+  id: string;
+  role: string;
+  department: string;
+  color: string;
+  accessible_courses: string[];
+  restricted_courses: string[];
+  permissions: {
+    view_courses: boolean;
+    take_assessments: boolean;
+    view_own_reports: boolean;
+    view_team_reports: boolean;
+    manage_users: boolean;
+    manage_content: boolean;
+    export_data: boolean;
+  };
+  accessible_modules_count: number;
+  total_modules_count: number;
+};
+
+export type EmpRoleAccessResult = {
+  current: EmpRoleAccess | null;
+  all_roles: EmpRoleAccess[];
+  synced_at: string;
+};
+
+export async function getEmpRoleAccessApi(role?: string, department?: string, user_id?: string): Promise<EmpRoleAccessResult> {
+  const qs = new URLSearchParams();
+  if (role) qs.set("role", role);
+  if (department) qs.set("department", department);
+  if (user_id) qs.set("user_id", user_id);
+  return request(`/api/mongo/emp-workspace/role-access?${qs}`, { method: "GET" });
+}
+
+// ── Idea Hub ─────────────────────────────────────────────────────
+
+export type EmpIdea = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  department: string;
+  title: string;
+  description: string;
+  category: string;
+  tags: string[];
+  status: "submitted" | "under_review" | "approved" | "rejected";
+  upvotes: number;
+  upvoted_by: string[];
+  comments: { id: string; commenter: string; text: string; at: string }[];
+  submitted_at: string;
+  created_at: string;
+};
+
+export type EmpIdeasResult = {
+  ideas: EmpIdea[];
+  total: number;
+  total_upvotes: number;
+  categories: string[];
+  statuses: string[];
+  synced_at: string;
+};
+
+export async function getEmpIdeasApi(params?: {
+  category?: string;
+  status?: string;
+  sort_by?: string;
+  user_id?: string;
+}): Promise<EmpIdeasResult> {
+  const qs = new URLSearchParams();
+  if (params?.category) qs.set("category", params.category);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.sort_by) qs.set("sort_by", params.sort_by);
+  if (params?.user_id) qs.set("user_id", params.user_id);
+  return request(`/api/mongo/emp-workspace/ideas?${qs}`, { method: "GET" });
+}
+
+export async function submitEmpIdeaApi(body: {
+  user_id?: string;
+  user_name: string;
+  department?: string;
+  title: string;
+  description: string;
+  category?: string;
+  tags?: string[];
+}): Promise<EmpIdea> {
+  return request("/api/mongo/emp-workspace/ideas", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function voteEmpIdeaApi(ideaId: string, voterId = "demo_user"): Promise<EmpIdea> {
+  return request(`/api/mongo/emp-workspace/ideas/${ideaId}/vote?voter_id=${encodeURIComponent(voterId)}`, { method: "PATCH" });
+}
+
+export async function seedEmpWorkspaceApi(): Promise<{ message: string }> {
+  return request("/api/mongo/emp-workspace/seed", { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEAVE MANAGEMENT WORKSPACE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type LeaveBalance = {
+  id?: string;
+  employee_name: string;
+  casual_total: number;
+  casual_used: number;
+  sick_total: number;
+  sick_used: number;
+  earned_total: number;
+  earned_used: number;
+  year: number;
+  updated_at?: string;
+};
+
+export type EmployeeLeaveRequest = {
+  id?: string;
+  _id?: string;
+  name: string;
+  avatar?: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  start_date_iso?: string;
+  end_date_iso?: string;
+  days: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  appliedDate?: string;
+  comment?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type LeavePolicy = {
+  id?: string;
+  leave_type: string;
+  total_days: number;
+  carry_forward: boolean;
+  max_carry_forward: number;
+  eligibility: string;
+  notice_required_days: number;
+  can_take_consecutive: boolean;
+  color?: string;
+  description: string;
+  approval_flow?: string[];
+};
+
+export type LeaveTrends = {
+  monthly: { month: string; days: number }[];
+  by_type: { type: string; days: number }[];
+  total_used_this_year: number;
+};
+
+export async function getLeaveBalanceApi(employeeName: string): Promise<LeaveBalance> {
+  return request<LeaveBalance>(
+    `/api/mongo/leave/balance?employee_name=${encodeURIComponent(employeeName)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getMyLeaveRequestsApi(
+  employeeName: string,
+  status?: string,
+): Promise<EmployeeLeaveRequest[]> {
+  const q = status && status !== "all" ? `&status=${status}` : "";
+  return request<EmployeeLeaveRequest[]>(
+    `/api/mongo/leave/my-requests?employee_name=${encodeURIComponent(employeeName)}${q}`,
+    { method: "GET" },
+  );
+}
+
+export async function applyLeaveApi(payload: {
+  employee_name: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  days: number;
+  reason: string;
+}): Promise<EmployeeLeaveRequest> {
+  return request<EmployeeLeaveRequest>("/api/mongo/leave/apply", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getLeavePoliciesApi(): Promise<LeavePolicy[]> {
+  return request<LeavePolicy[]>("/api/mongo/leave/policies", { method: "GET" });
+}
+
+export async function getLeaveTrendsApi(employeeName: string): Promise<LeaveTrends> {
+  return request<LeaveTrends>(
+    `/api/mongo/leave/trends?employee_name=${encodeURIComponent(employeeName)}`,
+    { method: "GET" },
+  );
+}
+
+export async function checkLeaveConflictsApi(
+  employeeName: string,
+  startDate: string,
+  endDate: string,
+): Promise<EmployeeLeaveRequest[]> {
+  return request<EmployeeLeaveRequest[]>(
+    `/api/mongo/leave/conflicts?employee_name=${encodeURIComponent(employeeName)}&start_date=${startDate}&end_date=${endDate}`,
+    { method: "GET" },
+  );
+}
+
+export async function getLeaveCalendarApi(employeeName: string): Promise<EmployeeLeaveRequest[]> {
+  return request<EmployeeLeaveRequest[]>(
+    `/api/mongo/leave/calendar?employee_name=${encodeURIComponent(employeeName)}`,
+    { method: "GET" },
+  );
+}
+
+export async function seedLeaveBalancesApi(): Promise<{ message: string; total: number }> {
+  return request("/api/mongo/leave/seed-balances", { method: "POST" });
 }
 

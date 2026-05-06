@@ -22,6 +22,9 @@ from app.mongodb.audit_logs_router import router as mongo_audit_router
 from app.mongodb.knowledge_workspace_router import router as mongo_kw_router
 from app.mongodb.performance_workspace_router import router as mongo_perf_router
 from app.mongodb.adaptive_rules_router import router as mongo_adaptive_rules_router
+from app.mongodb.notifications_workspace_router import router as mongo_notifications_router
+from app.mongodb.employee_workspace_router import router as mongo_emp_workspace_router
+from app.mongodb.leave_management_router import router as mongo_leave_router
 
 app = FastAPI(
     title="AI-LMS Platform API",
@@ -64,6 +67,24 @@ async def start_adaptive_rules_auto_sync() -> None:
     ar_start()
 
 
+@app.on_event("startup")
+async def start_notifications_auto_sync() -> None:
+    from app.mongodb.notifications_workspace_router import start_auto_sync as notif_start
+    notif_start()
+
+
+@app.on_event("startup")
+async def start_emp_workspace_auto_sync() -> None:
+    from app.mongodb.employee_workspace_router import start_auto_sync as emp_start
+    emp_start()
+
+
+@app.on_event("startup")
+async def start_leave_auto_sync() -> None:
+    from app.mongodb.leave_management_router import start_auto_sync as leave_start
+    leave_start()
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/healthz", tags=["Health"])
 def healthz():
@@ -93,6 +114,9 @@ app.include_router(mongo_audit_router)
 app.include_router(mongo_kw_router)
 app.include_router(mongo_perf_router)
 app.include_router(mongo_adaptive_rules_router)
+app.include_router(mongo_notifications_router)
+app.include_router(mongo_emp_workspace_router)
+app.include_router(mongo_leave_router)
 app.include_router(auth.router)
 app.include_router(tenants.router)
 app.include_router(users.router)

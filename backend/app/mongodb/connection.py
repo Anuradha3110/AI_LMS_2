@@ -126,3 +126,35 @@ def adaptive_rule_analytics_col():
 
 def adaptive_rule_versions_col():
     return webx_db()["adaptive_rule_versions"]
+
+
+def emp_progress_col():
+    return webx_db()["emp_progress"]
+
+
+def emp_performance_col():
+    return webx_db()["emp_performance"]
+
+
+def emp_leaderboard_col():
+    return webx_db()["emp_leaderboard"]
+
+
+def emp_schedule_col():
+    return webx_db()["emp_schedule"]
+
+
+def emp_role_access_col():
+    return webx_db()["emp_role_access"]
+
+
+def emp_ideas_col():
+    return webx_db()["emp_ideas"]
+
+
+def leave_balances_col():
+    return webx_db()["Leave_balances"]
+
+
+def leave_policies_col():
+    return webx_db()["Leave_policies"]

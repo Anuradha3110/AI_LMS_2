@@ -113,16 +113,172 @@ _LEARNER_NAMES = [
 
 _DEPT_SEEDS = ["Sales", "Operations", "Compliance", "Leadership", "Analytics"]
 
-# ── Ensure seeded ────────────────────────────────────────────────────────────
+# ── Sync from real users & Course collections ─────────────────────────────────
+
+async def _sync_learners():
+    """Rebuild performance_learners from the real users collection."""
+    now = datetime.utcnow()
+    users = await _users().find({"is_active": True}).to_list(1000)
+
+    if not users:
+        # No real users yet — fall back to seed names only if collection empty
+        if await _learners().count_documents({}) == 0:
+            courses_list = ["Advanced Sales Pitch Mastery", "Objection Handling Skills",
+                            "Compliance & Risk Certification", "Customer Support Simulation",
+                            "SOP Workflow Management", "Operations Excellence Program"]
+            statuses = ["completed", "in_progress", "in_progress", "not_started", "at_risk"]
+            for i, (name, dept) in enumerate(_LEARNER_NAMES):
+                score = 45 + (i * 11 % 55)
+                status = statuses[i % len(statuses)]
+                await _learners().insert_one({
+                    "learner_id": str(uuid.uuid4()), "name": name, "department": dept,
+                    "email": f"{name.lower().replace(' ', '.')}@demo.com",
+                    "course": courses_list[i % len(courses_list)],
+                    "completion_pct": min(100, 20 + (i * 17 % 80)) if status != "not_started" else 0,
+                    "quiz_score": score, "assignment_score": min(100, score + 8),
+                    "attendance_pct": 65 + (i * 7 % 35), "certificates": i % 4,
+                    "status": status, "at_risk": status == "at_risk" or score < 60,
+                    "last_active": (now - timedelta(days=i % 18)).isoformat(),
+                    "enrolled_at": (now - timedelta(days=30 + i * 3)).isoformat(),
+                    "created_at": now,
+                })
+            await _learners().create_index([("department", 1)])
+            await _learners().create_index([("status", 1)])
+            await _learners().create_index([("quiz_score", -1)])
+        return
+
+    # Pull course titles from real Course collection
+    course_docs = await _courses().find({}, {"title": 1}).to_list(200)
+    courses_list = [c.get("title", "") for c in course_docs if c.get("title")]
+    if not courses_list:
+        courses_list = ["Advanced Sales Pitch Mastery", "Objection Handling Skills",
+                        "Compliance & Risk Certification", "Customer Support Simulation",
+                        "SOP Workflow Management", "Operations Excellence Program"]
+
+    statuses = ["completed", "in_progress", "in_progress", "not_started", "at_risk"]
+    seen_ids: List[str] = []
+
+    for i, user in enumerate(users):
+        uid = str(user["_id"])
+        seen_ids.append(uid)
+        dept = user.get("department") or _DEPT_SEEDS[i % len(_DEPT_SEEDS)]
+        score = (abs(hash(uid)) % 55) + 45
+        status = statuses[i % len(statuses)]
+        at_risk = status == "at_risk" or score < 60
+
+        await _learners().update_one(
+            {"learner_id": uid},
+            {
+                "$set": {
+                    "name": user.get("full_name", ""),
+                    "email": user.get("email", ""),
+                    "department": dept,
+                    "tenant_id": str(user.get("tenant_id", "")),
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "learner_id": uid,
+                    "course": courses_list[i % len(courses_list)],
+                    "completion_pct": min(100, 20 + (i * 17 % 80)) if status != "not_started" else 0,
+                    "quiz_score": score,
+                    "assignment_score": min(100, score + 8),
+                    "attendance_pct": 65 + (i * 7 % 35),
+                    "certificates": i % 4,
+                    "status": status,
+                    "at_risk": at_risk,
+                    "last_active": (now - timedelta(days=i % 18)).isoformat(),
+                    "enrolled_at": (now - timedelta(days=30 + i * 3)).isoformat(),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    # Remove records no longer in the users collection
+    if seen_ids:
+        await _learners().delete_many({"learner_id": {"$nin": seen_ids}})
+
+    await _learners().create_index([("department", 1)])
+    await _learners().create_index([("status", 1)])
+    await _learners().create_index([("quiz_score", -1)])
+
+
+async def _sync_instructors():
+    """Rebuild performance_instructors from admin/manager users + Course collection."""
+    now = datetime.utcnow()
+    inst_users = await _users().find(
+        {"role": {"$in": ["admin", "manager"]}, "is_active": True}
+    ).to_list(100)
+
+    if not inst_users:
+        if await _instructors().count_documents({}) == 0:
+            for item in _INSTRUCTOR_SEEDS:
+                await _instructors().insert_one({**item, "inst_id": str(uuid.uuid4()), "created_at": now})
+            await _instructors().create_index([("avg_rating", -1)])
+        return
+
+    all_courses = await _courses().find({}).to_list(500)
+    seen_ids: List[str] = []
+
+    for i, inst in enumerate(inst_users):
+        uid = str(inst["_id"])
+        seen_ids.append(uid)
+
+        # Match courses created by this user or with matching instructor name
+        inst_courses = [
+            c for c in all_courses
+            if str(c.get("createdBy", "")) == uid
+            or c.get("instructor", "") == inst.get("full_name", "")
+        ]
+        courses_count = len(inst_courses)
+        students = sum(c.get("enrolledUsers", 0) for c in inst_courses)
+        ratings = [c.get("rating", 0) for c in inst_courses if c.get("rating")]
+        avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else round(3.5 + (abs(hash(uid)) % 15) / 10, 1)
+        total_revenue = students * 275
+        completion_rate = round(65 + (avg_rating * 5) % 30, 1)
+        engagement_rate = round(70 + (abs(hash(uid)) % 25), 1)
+
+        await _instructors().update_one(
+            {"inst_id": uid},
+            {
+                "$set": {
+                    "name": inst.get("full_name", ""),
+                    "email": inst.get("email", ""),
+                    "department": inst.get("department") or _DEPT_SEEDS[i % len(_DEPT_SEEDS)],
+                    "courses_count": courses_count,
+                    "students": students,
+                    "avg_rating": avg_rating,
+                    "completion_rate": completion_rate,
+                    "total_revenue": total_revenue,
+                    "engagement_rate": engagement_rate,
+                    "tenant_id": str(inst.get("tenant_id", "")),
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "inst_id": uid,
+                    "response_time_hours": round(1.5 + (abs(hash(uid)) % 8), 1),
+                    "feedback_positive": max(0, int(students * 0.87)),
+                    "feedback_negative": max(0, int(students * 0.05)),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    if seen_ids:
+        await _instructors().delete_many({"inst_id": {"$nin": seen_ids}})
+
+    await _instructors().create_index([("avg_rating", -1)])
+
 
 async def _ensure_seeded():
     now = datetime.utcnow()
 
-    if await _instructors().count_documents({}) == 0:
-        for item in _INSTRUCTOR_SEEDS:
-            await _instructors().insert_one({**item, "inst_id": str(uuid.uuid4()), "created_at": now})
-        await _instructors().create_index([("avg_rating", -1)])
+    # Always sync learners and instructors from real collections
+    await _sync_learners()
+    await _sync_instructors()
 
+    # Seed static analytics collections only when empty
     if await _revenue().count_documents({}) == 0:
         for i, item in enumerate(_REVENUE_SEEDS):
             await _revenue().insert_one({
@@ -175,59 +331,26 @@ async def _ensure_seeded():
             })
         await _alerts().create_index([("severity", 1), ("status", 1)])
 
-    if await _learners().count_documents({}) == 0:
-        courses_list = ["Advanced Sales Pitch Mastery", "Objection Handling Skills",
-                        "Compliance & Risk Certification", "Customer Support Simulation",
-                        "SOP Workflow Management", "Operations Excellence Program"]
-        statuses = ["completed", "in_progress", "in_progress", "not_started", "at_risk"]
-        for i, (name, dept) in enumerate(_LEARNER_NAMES):
-            score = 45 + (i * 11 % 55)
-            status = statuses[i % len(statuses)]
-            at_risk = status == "at_risk" or score < 60
-            await _learners().insert_one({
-                "learner_id": str(uuid.uuid4()), "name": name, "department": dept,
-                "email": f"{name.lower().replace(' ', '.')}@demo.com",
-                "course": courses_list[i % len(courses_list)],
-                "completion_pct": min(100, 20 + (i * 17 % 80)) if status != "not_started" else 0,
-                "quiz_score": score, "assignment_score": min(100, score + 8),
-                "attendance_pct": 65 + (i * 7 % 35), "certificates": i % 4,
-                "status": status, "at_risk": at_risk,
-                "last_active": (now - timedelta(days=i % 18)).isoformat(),
-                "enrolled_at": (now - timedelta(days=30 + i * 3)).isoformat(),
-                "created_at": now,
-            })
-        await _learners().create_index([("department", 1)])
-        await _learners().create_index([("status", 1)])
-        await _learners().create_index([("quiz_score", -1)])
-
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.post("/seed")
-async def seed_performance_workspace():
-    """Seed all performance workspace collections. Idempotent."""
-    await _ensure_seeded()
-    return {
-        "success": True,
-        "instructors":  await _instructors().count_documents({}),
-        "revenue_rows": await _revenue().count_documents({}),
-        "engage_rows":  await _engage().count_documents({}),
-        "benchmarks":   await _bench().count_documents({}),
-        "alerts":       await _alerts().count_documents({}),
-        "learners":     await _learners().count_documents({}),
-    }
-
-
 @router.get("/overview")
-async def get_overview():
+async def get_overview(department: Optional[str] = None):
     await _ensure_seeded()
+    learner_query: Dict[str, Any] = {}
+    if department:
+        learner_query["department"] = department
+
     courses = await _courses().find({}).to_list(500)
     rev_docs = await _revenue().find({}).sort("created_at", 1).to_list(12)
     engage_docs = await _engage().find({}).sort("date", -1).limit(1).to_list(1)
-    learner_docs = await _learners().find({}).to_list(200)
+    learner_docs = await _learners().find(learner_query).to_list(200)
     alert_docs = await _alerts().find({"status": "active"}).to_list(20)
 
-    total_enrolled = sum(c.get("enrolledUsers", 0) for c in courses)
+    if department:
+        total_enrolled = len(learner_docs)
+    else:
+        total_enrolled = sum(c.get("enrolledUsers", 0) for c in courses)
     completed = sum(1 for l in learner_docs if l.get("status") == "completed")
     total_learners = len(learner_docs) or 1
     completion_rate = round((completed / total_learners) * 100, 1)

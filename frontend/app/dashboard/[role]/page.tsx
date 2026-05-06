@@ -7287,7 +7287,7 @@ export default function DashboardPage() {
                   <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>Loading performance data…</div>
                 ) : (d?.assessments?.length ?? 0) > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {d.assessments.map(assess => (
+                    {d!.assessments!.map(assess => (
                       <div key={assess.id} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", border: "1.5px solid #e2e8f0", boxShadow: "0 1px 4px rgba(15,23,42,0.06)" }}>
                         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
                           <div>
